@@ -377,12 +377,51 @@ num_cols = ["edad", "horas_diarias_pantalla", "horas_redes_sociales",
 "horas_videojuegos", "horas_trabajo/estudio", "horas_sueño", "notificaciones_por_dia",
 "aperturas_apps_por_dia", "tiempo_pantalla_finde", "horas_ocio", "ratio_finde_diario"]
 cat_cols = ["genero", "nivel_estres", "impacto_academico/laboral"]
-vista_df_clean = df_clean.head().T
-vista_df_clean.columns = [f"Usuario {i}" for i in range(1, 6)]
-vista_df_clean.index.name = "Columna"
+decisiones = pd.DataFrame(
+    [
+        ["ID_transaccion, ID_usuario", "No usar para predecir",
+         "Son identificadores."],
 
-tabla(vista_df_clean, tamanio="footnotesize")
+        ["nivel_adiccion", "No usar para predecir",
+         "Revela la respuesta: fuga de información."],
+
+        ["tiempo_pantalla_finde", "No usar para predecir",
+         "Aporta información muy similar a la pantalla diaria."],
+
+        ["horas_ocio", "Solo para el análisis exploratorio",
+         "Tiene menor asociación que redes sociales sola."],
+
+        ["ratio_finde_diario", "Mostrar la revisión y descartarlo como predictor",
+         "No demuestra autorregulación."]
+    ],
+    columns=["Variable", "Qué proponemos", "Por qué"]
+)
+
+tabla(decisiones, indice=False)
 ```
+
+
+
+### Decirle a  python que tipo de catégorica es cada variable categórica.
+```{python}
+#| echo: true
+#| label: Veamos que las variables categoricas se guardan como texto, así que lo cambiaremos
+df_clean[cat_cols].dtypes
+```
+
+```{python}
+df_clean['genero'] = df_clean['genero'].astype('category')
+df_clean['impacto_academico/laboral'] = df_clean['impacto_academico/laboral'].astype('category')
+df_clean['nivel_estres'] = pd.Categorical(df_clean['nivel_estres'],categories=['Low','Medium','High'],ordered=True)
+```
+
+```{python}
+#| echo: true
+#| label: Comprobemos
+
+df_clean[cat_cols].dtypes
+```
+
 
 ### Enriquecimiento de datos:
 
@@ -410,7 +449,49 @@ Las variables `num_cols` y `cat_cols` actualizadas son:
 - `num_cols`: edad, horas_diarias_pantalla, horas_redes_sociales, horas_videojuegos, horas_trabajo/estudio, horas_sueño, notificaciones_por_dia, aperturas_apps_por_dia, tiempo_en_pantalla_fin_de_semana, horas_ocio, ratio_finde_diario, etiqueta_de_adiccion
 - `cat_cols`: genero, nivel_estres, impacto_academico/laboral, estado_adiccion
 
-\newpage
+### Correción del ratio_finde_diario
+
+```{python}
+# | echo: True
+# | label: Creemos diferencia finde 
+df_clean['diferencia_finde'] = df_clean['tiempo_pantalla_finde'] - df_clean['horas_diarias_pantalla']
+```
+
+```{python}
+# | echo: True
+# | label: Hacemos su promedio por grupo a traves de groupby con referecnia etiqueta_de_adiccion
+df_clean.groupby('etiqueta_de_adiccion')['diferencia_finde'].mean()
+```
+
+"Los usuarios no adictos, pues estos realizan una autorregulación del uso del teléfono inteligente en el curso de la semana, dejando para el fin de semana el consumo, en contraposición a los usuarios en riesgo que exhiben un uso continuo e intenso."
+
+En un inicio vimos que las personas no adictas tenían un ratio_finde_diario más alto que las personas adictas, esto nos hizo pensar en un primer momento que las personas no adictas se autorregulaban y distribuían su uso de celular más a los findes, pero esto sería una interpretación no respaldada. A través de una nueva columna llamada diferencia_finde observamos que tanto las personas adictas como no adictas tienen una diferencia muy similar entre tiempo_pantalla_finde y horas_diarias_pantalla siendo apróximadamente 1.74 horas en ambos grupos. 
+
+El ratio observado no permite afirmar una mayor 'autorregulación', sino que puede deberse a diferencias en el uso diario de partida. Dos personas puedes tener un ratio distinto aunque su diferencia de horas sean iguales.
+
+Todo esot sugiriendo que el uso del fin de semana refleja principalmente el uso diario más un incremento similar en ambos grupos
+
+
+```{python}
+#| echo: true
+#| label: Revisar correlacion de horas_ocio y horas_redes_sociales
+print(df_clean[['horas_ocio', 'horas_redes_sociales', 'etiqueta_de_adiccion','horas_videojuegos']].corr())
+```
+
+Con esto podemos notas que horas ocio tiene una menor correlación con etiqueta_de_adiccion (0.34) que por si solo lo tiene horas_redes_socaiales con etiqueta_de_adiccion (0.41), esto se debería a que horas de videojuego tiene una correlación débil siendo muy cercana a 0 (0.008485). Por eso horas de ocio siendo la suma de estas 2 su correlación es menos que a la correlación de horas_redes_sociales
+
+Y aunque la correlación de horas_ocio no sea más alta que la de horas_redes_sociales respecto a la etiqueta_de_adiccion, nos podría servir para poder hacer gráficas y mostrar la distribución de personas adictas con respecto a las horas de ocio y poder ver patrones si podría presentar diferencias en que una persona  es adicta o no
+
+
+### ¿Que hacer con horas pantalla finde?
+```{python}
+print(df_clean[['tiempo_pantalla_finde', 'horas_diarias_pantalla']].corr())
+```
+
+Podemos darnos cuenta que que tiempo_pantalla_finde y horas_diarias_pantalla tiene una correlación muy cercana a 1 (0.96) esto indicando que estas colummnas contienen información muy similar, se decidió no utilizar tiempo_pantalla_finde puesto que aportaría información muy relacinada con horas_diarias_pantalla por lo que decidimos excluirla como predictor para simplificar el modelo.
+
+
+
 
 # Análisis exploratorio de datos
 
