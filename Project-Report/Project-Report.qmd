@@ -547,7 +547,7 @@ fig.suptitle(
 plt.show()
 ```
 
-Cada histograma muestra cómo se distribuyen los valores de cada variable numérica. En las variables relacionadas con la interacción, como `notificaciones_por_dia` y `aperturas_apps_por_dia`, se observa una dispersión bastante amplia. Aunque la mayoría de los usuarios se concentra en rangos intermedios, también hay algunos con frecuencias mucho más altas. Por otro lado, las variables expresadas en horas, como `horas_diarias_pantalla`, `horas_redes_sociales`, `horas_videojuegos`, `horas_trabajo/estudio` y `horas_sueño`, presentan rangos más reducidos. En particular, `horas_sueño` se concentra alrededor de valores medios, mientras que el tiempo de pantalla y de uso de redes sociales varía más entre los usuarios. La edad también se encuentra dentro de un rango relativamente limitado, correspondiente principalmente a adultos jóvenes.
+Usamos histogramas porque queremos ver la **forma** de la distribución de cada variable numérica: en qué intervalo se concentran los valores, si hay cola y si la distribución es simétrica (@fig-histogramas-numericos). Lo que se observa es que **casi todas las distribuciones son prácticamente planas (uniformes)**: dentro de su rango, cada intervalo aparece con una frecuencia muy parecida, sin concentración en el centro ni colas largas. Un patrón así casi nunca aparece en datos reales y es la señal de que el dataset fue **generado por computadora**. La única excepción es `ratio_finde_diario`, que sí tiene cola hacia la derecha porque es el resultado de dividir dos horas; es un motivo más para descartarlo como predictor. Por lo demás, no esperamos encontrar aquí los patrones clásicos de los estudios sobre adicción al smartphone, y también por eso **no hace falta transformar ninguna variable** antes de pasar a la modelación de la P2.
 
 
 ```{python}
@@ -562,7 +562,34 @@ plt.xticks(rotation=0)
 plt.show()
 ```
 
-El gráfico de barras muestra una clara asimetría y desbalance de clases, donde la categoría "Adiccto" predomina ampliamente (superando las 5,000 observaciones) frente a la de "No adicto" (alrededor de 2,200). Este desequilibrio implica que, para fases posteriores de modelado o análisis estadístico, se debe considerar el balanceo de datos o métricas de evaluación adecuadas para evitar sesgos hacia la clase mayoritaria.*
+Para una variable categórica como `estado_adiccion` el gráfico adecuado es el de barras, porque lo que queremos comparar es el **tamaño de cada grupo**, no la forma de una distribución (@fig-estado-adiccion). Ahí se ve un desbalance claro de clases: la categoría "Adicto" reúne 5,308 observaciones (70.77 %) frente a 2,192 de "No adicto" (29.23 %). Este desequilibrio implica que, para fases posteriores de modelado o análisis estadístico, se debe considerar el balanceo de datos o métricas de evaluación adecuadas para evitar sesgos hacia la clase mayoritaria.
+
+```{python}
+#| echo: true
+#| label: fig-barras-categoricas
+#| fig-cap: "Conteo de participantes en cada categoría de género, nivel de estrés e impacto académico o laboral."
+fig, axes = plt.subplots(1, 3, figsize=(12, 3.6))
+
+categoricas = [
+    ("genero", "Género"),
+    ("nivel_estres", "Nivel de estrés"),
+    ("impacto_academico/laboral", "Impacto académico o laboral"),
+]
+
+for ax, (col, titulo) in zip(axes, categoricas):
+    conteos = df_clean[col].value_counts(sort=False)
+    barras = sns.barplot(x=conteos.index.astype(str), y=conteos.values,
+                         ax=ax, color="steelblue")
+    ax.set_title(titulo, fontsize=10)
+    ax.set_xlabel("")
+    ax.set_ylabel("Personas", fontsize=9)
+    ax.bar_label(barras.containers[0], fmt="%d", padding=2, fontsize=8)
+
+plt.tight_layout()
+plt.show()
+```
+
+Aplicamos el mismo criterio a las tres variables categóricas del dataset (@fig-barras-categoricas). En las tres se ven **grupos casi del mismo tamaño**: en `genero` hay 2,553 personas "Male", 2,486 "Other" y 2,461 "Female"; en `nivel_estres`, 2,560 "High", 2,503 "Low" y 2,437 "Medium"; y en `impacto_academico/laboral`, 3,753 "No" y 3,747 "Yes". Ninguna categoría domina a las otras, lo que significa que por sí solas ninguna de las tres va a explicar la etiqueta de adicción; habrá que comprobarlo al cruzarlas con la etiqueta en el análisis multivariado.
 
 \newpage
 
@@ -632,19 +659,61 @@ $$
 Q_k = \text{valor en la posición } \frac{k}{4}(n+1)
 $$ {#eq-cuartiles}
 
-La visualización de las variables numéricas (edad, tiempo en pantalla, uso de apps, sueño, etc.) muestra en general una distribución bastante homogénea y centrada. Salvo por ligeras asimetrías o atípicos aislados en hábitos de uso intensivo (como notificaciones o videojuegos), las observaciones representan comportamientos reales de los usuarios y no errores de registro, por lo que se decide conservar todas las variables completas para el análisis.
+Un punto se considera **atípico** si cae más de 1.5 veces el rango intercuartílico (IQR = Q3 - Q1) por debajo de Q1 o por encima de Q3. Para no dejarlo en nuestra palabra, lo contamos con código en la @tbl-atipicos-iqr: **las nueve variables numéricas tienen 0 atípicos**. En consecuencia, en la @fig-boxplots-numericos se ven cajas limpias, sin puntos sueltos; la afirmación anterior de que había "atípicos aislados en notificaciones y videojuegos" no se sostiene, y por eso no hay ninguna fila que descartar del análisis.
+
+```{python}
+#| echo: true
+#| label: tbl-atipicos-iqr
+#| tbl-cap: "Conteo de valores atípicos por variable numérica según la regla de Tukey (1.5 veces el IQR)."
+filas_atipicos = []
+for col in num_cols:
+    q1, q3 = df_clean[col].quantile([0.25, 0.75])
+    iqr = q3 - q1
+    atipicos = ((df_clean[col] < q1 - 1.5 * iqr) |
+                (df_clean[col] > q3 + 1.5 * iqr)).sum()
+    filas_atipicos.append({
+        "Variable": col,
+        "Q1": q1,
+        "Q3": q3,
+        "IQR": iqr,
+        "Atípicos": int(atipicos),
+    })
+
+tabla(pd.DataFrame(filas_atipicos), decimales=2, indice=False,
+      tamanio="scriptsize")
+```
+
+Un comentario por variable, para que cada caja quede interpretada:
+
+- **`edad`**: caja de 22 a 31 años, mediana en 27; la mitad de las personas tiene entre 22 y 31 y el rango total va de 18 a 35. Sin atípicos.
+- **`horas_diarias_pantalla`**: mediana de 7.52 h, con la mitad de las personas entre 5.22 h y 9.81 h y un rango de 3 a 12 h. Sin atípicos.
+- **`horas_redes_sociales`**: mediana de 3.27 h, caja de 1.91 h a 4.63 h y rango de 0.5 a 6 h. Sin atípicos.
+- **`horas_videojuegos`**: mediana de 2.04 h, caja de 1.02 h a 2.99 h y rango de 0 a 4 h. Sin atípicos.
+- **`horas_trabajo/estudio`**: mediana de 3.23 h, caja de 1.85 h a 4.64 h y rango de 0.5 a 6 h. Sin atípicos.
+- **`horas_sueño`**: mediana de 6.72 h, caja de 5.63 h a 7.84 h y rango de 4.5 a 9 h; es de las variables más concentradas. Sin atípicos.
+- **`notificaciones_por_dia`**: mediana de 134 notificaciones, caja de 76 a 191 y rango de 20 a 250. Su caja es ancha porque se mide en centenas, no porque tenga valores raros. Sin atípicos.
+- **`aperturas_apps_por_dia`**: mediana de 98 aperturas, caja de 55 a 140 y rango de 15 a 180. Sin atípicos.
+- **`tiempo_pantalla_finde`**: mediana de 9.26 h, caja de 6.96 h a 11.54 h y rango de 3.58 a 14.88 h; es la que va más arriba, como era de esperarse porque es un día de descanso. Sin atípicos.
+
+En resumen, todos los boxplots muestran cajas parecidas, sin puntos por fuera y sin asimetrías marcadas: otra consecuencia de que los datos fueron generados por computadora.
 
 \newpage
 
 ```{python}
 #| echo: true
 #| label: tbl-estadistica-descriptiva
-#| tbl-cap: "Estadística descriptiva de las variables numéricas."
-descripcion = df_clean[num_cols].describe().T
-descripcion.columns = [
-"n", "Media", "Desv. est.", "Mín.", "Q1", "Mediana","Q3", "Máx."]
-descripcion.index.name = "Variable"
-tabla(descripcion, decimales={"n": 0}, tamanio="small", alineacion=r"p{3.5cm}*{8}{c}")
+#| tbl-cap: "Media, mediana, moda, desviación estándar, varianza, rango y coeficiente de variación de las variables numéricas."
+resumen = df_clean[num_cols].agg(
+    ["mean", "median", "std", "var", "min", "max"]
+).T
+resumen["rango"] = resumen["max"] - resumen["min"]
+resumen["cv_%"] = resumen["std"] / resumen["mean"] * 100
+resumen["moda"] = df_clean[num_cols].mode().iloc[0]
+resumen.columns = ["Media", "Mediana", "Desv. est.", "Varianza", "Mín.",
+                   "Máx.", "Rango", "CV (%)", "Moda"]
+resumen.index.name = "Variable"
+tabla(resumen, decimales=2, tamanio="scriptsize",
+      alineacion=r"p{3.5cm}*{9}{c}")
 ```
 
 Se calculan las medidas de tendencia central y dispersión de cada variable numérica [@walpole2012probabilidad]:
@@ -673,16 +742,14 @@ $$
 CV = \frac{s}{\bar{x}} \times 100\%
 $$ {#eq-cv}
 
-En general, al comparar la media y la mediana de las variables numéricas observamos distribuciones relativamente equilibradas y sin una asimetría marcada. Por ejemplo, la edad presenta una media de 26.57 y una mediana de 27 años; las horas diarias de pantalla, 7.50 y 7.53; las horas en redes sociales, 3.27 y 3.27; las horas de trabajo/estudio, 3.24 y 3.23; las horas de sueño, 6.74 y 6.72; y el tiempo de pantalla durante el fin de semana, 9.24 y 9.26. En videojuegos, la diferencia es ligeramente mayor, con una media de 2.01 y una mediana de 2.04 horas, lo que sugiere una ligera asimetría. Con respecto a la desviación estándar: las notificaciones por día (66.59) y las aperturas de aplicaciones (48.42) tienen una dispersión amplia, mientras que entre las variables medidas en horas destacan el tiempo de pantalla durante el fin de semana (2.72) y las horas diarias de pantalla (2.61). Los boxplots también muestran algunos valores extremos o atípicos aislados, especialmente en variables relacionadas con el uso intensivo del celular, como las notificaciones y los videojuegos. En resumen, estas variables presentan mayor variabilidad en los patrones de uso, aunque los valores extremos fueron considerados comportamientos posibles de los usuarios y se conservaron para el análisis. 
+La @tbl-estadistica-descriptiva reúne las medidas de tendencia central, de dispersión y la moda de cada variable numérica. Comparando media y mediana vemos distribuciones casi simétricas, sin asimetría marcada: la edad tiene media 26.57 y mediana 27; las horas diarias de pantalla, 7.50 y 7.52; las horas en redes sociales, 3.27 y 3.27; las de trabajo/estudio, 3.24 y 3.23; las de sueño, 6.74 y 6.72; y el tiempo de pantalla del fin de semana, 9.24 y 9.26. En videojuegos la diferencia es un poco mayor (2.01 frente a 2.04), lo que sugiere una ligera asimetría.
+
+Para comparar cuánto varía una variable respecto de otra **hay que usar el coeficiente de variación (CV) y no la desviación estándar**, porque las variables tienen unidades distintas: las notificaciones se cuentan por centenas y las horas por unidades bajas. En porcentaje, la que más varía es `horas_videojuegos` (56.9 %), seguida de `notificaciones_por_dia` (49.6 %), `aperturas_apps_por_dia` (49.5 %), `horas_trabajo/estudio` (49.4 %) y `horas_redes_sociales` (48.4 %); en el otro extremo están `edad` (19.6 %) y `horas_sueño` (19.1 %), que son las más estables. Afirmar que las notificaciones "varían más" que las horas de sueño solo porque su desviación estándar es 66.59 frente a 1.28 sería injusto: casi toda esa diferencia se debe a la unidad en la que se mide cada una, no a un comportamiento distinto de los usuarios.
+
+La moda (el valor que más se repite) sirve en variables enteras y en las categóricas, pero casi no aporta en variables con decimales: la moda de `horas_diarias_pantalla` es 8.13 h y aparece solo 18 veces entre 7,500 personas, así que no resume a nadie. En cambio, la moda de `edad` es 31 años y la tienen 461 personas, un valor que sí representa a un grupo grande; en las categóricas, además, la moda es la categoría más frecuente y por eso se interpreta directamente. Por eso la reportamos junto con la media y la mediana, nunca por separado.
 
 ```{python}
 #| echo: true
-for i in cat_cols:
-  df_clean[i].value_counts(normalize=True)
-```
-
-```{python}
-#| echo: false
 #| label: tbl-proporcion-genero
 #| tbl-cap: "Proporción de registros por género."
 proporcion = df_clean['genero'].value_counts(normalize=True).mul(100).to_frame().T
@@ -721,7 +788,7 @@ proporcion.index.name = "Variable"
 tabla (proporcion, decimales = 2, interlineado=1.0)
 ```
 
-En las variables categóricas se observa bien equilibridad en `género`, ya que Masculino representa el 34.04 %, Otro el 33.15 % y Femenino el 32.81 %, el `estrés` tambien se presenta de manera similar Alto concentra el 34.13 %, Bajo el 33.37 % y Medio el 32.49 %. En el `impacto academico o laboral` hay practicamente una igualdas en No (50.04 %) y Sí (49.96 %). En diferencia, la variable `estado de adiccón` presenta un desbalance evidente: Adicto representa el 70.77 % de los registros, mientras que No adicto corresponde al 29.23 %, esta va a ser importante para modelos predictivos posteriores. De las variables categóricas utilizadas, `nivel_estres` se tratará como ordinal, debido a que sus categorías tienen un orden natural: Bajo < Medio < Alto; en cambio, ``género` e `impacto académico/laboral` son variables nominales y `estado_adiccion` es una variable binaria.
+En las variables categóricas se observa un buen equilibrio: en `genero`, Masculino representa el 34.04 %, Otro el 33.15 % y Femenino el 32.81 %; en `nivel_estres`, Alto concentra el 34.13 %, Bajo el 33.37 % y Medio el 32.49 %; y en `impacto academico o laboral` hay prácticamente igualdad entre No (50.04 %) y Sí (49.96 %). Esto coincide con los conteos de la @fig-barras-categoricas. En cambio, la variable `estado de adicción` presenta un desbalance evidente: Adicto representa el 70.77 % de los registros, mientras que No adicto corresponde al 29.23 %, algo que será importante para los modelos predictivos posteriores. De las variables categóricas utilizadas, `nivel_estres` se tratará como ordinal, debido a que sus categorías tienen un orden natural: Bajo < Medio < Alto; en cambio, `genero` e `impacto académico/laboral` son variables nominales y `estado_adiccion` es una variable binaria.
 
 ## Análisis multivariado
 
@@ -732,7 +799,7 @@ En las variables categóricas se observa bien equilibridad en `género`, ya que 
 sns.heatmap(df_clean.corr(numeric_only = True), annot = True, fmt=".2f", cmap="vlag")
 ```
 
-En el mapa de calor se observa una relación fuerte entre las horas de pantalla diarias y las horas de pantalla durante el fin de semana, con una correlación cercana a 1. Esto quiere decir que las personas que suelen pasar más tiempo frente a una pantalla durante el día a día también tienden a mantener un uso elevado los fines de semana. Debido a que ambas variables muestran un comportamiento muy parecido, lo que podría generar colinealidad.
+En la @fig-matriz-correlacion (mapa de calor) se observa una relación fuerte entre las horas de pantalla diarias y las horas de pantalla durante el fin de semana, con una correlación cercana a 1. Esto quiere decir que las personas que suelen pasar más tiempo frente a una pantalla durante el día a día también tienden a mantener un uso elevado los fines de semana. Debido a que ambas variables muestran un comportamiento muy parecido, lo que podría generar colinealidad.
 
 Por otro lado, la etiqueta de adicción presenta una correlación aproximada de 0.6 con las horas diarias de pantalla, 0.4 con el tiempo dedicado a redes sociales y 0.6 con las horas de pantalla durante el fin de semana.
 
@@ -745,6 +812,8 @@ La correlación de Pearson mide la fuerza y dirección de la relación lineal en
 $$
 r_{xy} = \frac{\text{cov}(x,y)}{s_x \, s_y}
 $$ {#eq-correlacion}
+
+Para ver si las variables que creamos separan a los grupos, comparamos las horas de ocio según el estado de adicción en la @fig-boxplot-ocio-adiccion, según el género en la @fig-boxplot-ocio-genero y según el impacto académico o laboral en la @fig-boxplot-ocio-impacto. Lo mismo hacemos con la razón entre pantalla de fin de semana y diaria en la @fig-boxplot-ratio-adiccion, con las horas de sueño en la @fig-boxplot-sueno-adiccion, y con las horas de pantalla y de ocio según el nivel de estrés en la @fig-boxplot-pantalla-estres y la @fig-boxplot-ocio-estres.
 
 ```{python}
 #| echo: true
@@ -798,6 +867,8 @@ Las cajas del grupo con etiqueta 1 también son algo más altas, lo que indica m
 
 Al comparar los géneros, las medianas y la dispersión son similares dentro de cada clase.
 
+Cruzamos ahora cada variable categórica con la etiqueta: el nivel de estrés en la @fig-estres-adiccion, el género en la @fig-genero-adiccion, otra vez el estrés en la @fig-nivel-estres-adiccion, el impacto académico o laboral en la @fig-impacto-academico-adiccion y los promedios de pantalla, finde y ocio en la @fig-promedio-pantalla-finde-ocio.
+
 ```{python}
 #| echo: true
 #| label: fig-estres-adiccion
@@ -822,7 +893,7 @@ plt.show()
 
 ```{python}
 #| echo: false
-#| label: fig-nivel_estres-adiccion
+#| label: fig-nivel-estres-adiccion
 #| fig-cap: "Distribución del nivel de estrés según la etiqueta de adicción."
 sns.histplot(data=df_clean,x = df_clean["nivel_estres"], hue = 'etiqueta_de_adiccion')
 plt.show()
@@ -830,7 +901,7 @@ plt.show()
 
 ```{python}
 #| echo: false
-#| label: fig-impacto_academico/social-adiccion
+#| label: fig-impacto-academico-adiccion
 #| fig-cap: "Distribución del impacto academico y social según la etiqueta de adicción."
 sns.histplot(data=df_clean,x = df_clean["impacto_academico/laboral"], hue = 'etiqueta_de_adiccion')
 plt.show()
@@ -894,13 +965,13 @@ sns.scatterplot(data=df_renombrado, x= 'horas_redes_sociales', y= 'horas_diarias
 
 ```
 
-En la primera comparación podemos observar que a medida que aumentan las horas diarias frente a una pantalla, también parece aumentar la posibilidad de que una persona sea 'adicta'. A partir de las 8 horas, se puede notar que la mayoría de las personas son consideradas adictas. En cambio, en las horas de trabajo y estudio no se observa un patrón claro.
+En la @fig-dispersion-trabajo-pantalla podemos observar que a medida que aumentan las horas diarias frente a una pantalla, también parece aumentar la posibilidad de que una persona sea 'adicta'. A partir de las 8 horas, se puede notar que la mayoría de las personas son consideradas adictas. En cambio, en las horas de trabajo y estudio no se observa un patrón claro.
 
-En la segunda comparación, entre las 0 y 4 horas no se logra identificar un patrón a simple vista. Sin embargo, entre las 4 y 6 horas podemos observar que todas las personas son consideradas adictas. Por otro lado, en las horas de sueño tampoco se aprecia un patrón claro relacionado con la adicción.
+En la @fig-dispersion-sueno-redes, entre las 0 y 4 horas no se logra identificar un patrón a simple vista. Sin embargo, entre las 4 y 6 horas podemos observar que todas las personas son consideradas adictas. Por otro lado, en las horas de sueño tampoco se aprecia un patrón claro relacionado con la adicción.
 
-En la tercera y cuarta comparación no se observa una tendencia clara entre las variables. Lo que sí podemos notar en las gráficas es que las personas consideradas adictas aparecen en una mayor proporción que las que no lo son.
+En la @fig-dispersion-notificaciones-sueno y la @fig-dispersion-videojuegos-trabajo no se observa una tendencia clara entre las variables. Lo que sí podemos notar en las gráficas es que las personas consideradas adictas aparecen en una mayor proporción que las que no lo son.
 
-Finalmente, en la última gráfica podemos observar que, en las edades más bajas, hay una mayor cantidad de personas consideradas adictas. Además, nuevamente se puede apreciar que mientras aumentan las horas diarias de uso de pantalla, también parece aumentar la posibilidad de que una persona sea considerada adicta hasta el valor de 8, ya que de 8 en adelante la persona ya se le considera como una persona 'adicta'
+Finalmente, en la @fig-dispersion-edad-pantalla podemos observar que, en las edades más bajas, hay una mayor cantidad de personas consideradas adictas. Además, nuevamente se puede apreciar que mientras aumentan las horas diarias de uso de pantalla, también parece aumentar la posibilidad de que una persona sea considerada adicta hasta el valor de 8, ya que de 8 en adelante la persona ya se le considera como una persona 'adicta'
 
 \newpage
 
@@ -929,8 +1000,8 @@ $$ {#eq-covarianza}
 
 # Conclusiones de P1
 
-Hemos encontrado 819 valores nulos correspondientes a una única columna: `nivel_adiccion`, por lo cual hemos optado excluir la columna `nivel_adiccion``, puesto que revelaba la misma información que la variable objetivo que es `etiqueta_de_adiccion`.
-La cantidad de personas que presentan la condicion de “Adicto” de la variable `etiqueta_de_adiccion es 5308 y la que presentan la condición de “No adicto” es 2192. El 70.77 % presenta adicción al smartphone y el 29.22% no presenta esta adicción: por lo tanto la clase objetivo no está balanceada y eso implica una mayor tendencia a la categoría “Adicto” lo cual en un futuro puede llevar a sesgos en el modelo de predicción.
+Hemos encontrado 819 valores nulos correspondientes a una única columna: `nivel_adiccion`, por lo cual hemos optado excluir la columna `nivel_adiccion`, puesto que revelaba la misma información que la variable objetivo que es `etiqueta_de_adiccion`.
+La cantidad de personas que presentan la condición de “Adicto” de la variable `etiqueta_de_adiccion` es 5308 y la que presentan la condición de “No adicto” es 2192. El 70.77 % presenta adicción al smartphone y el 29.22% no presenta esta adicción: por lo tanto la clase objetivo no está balanceada y eso implica una mayor tendencia a la categoría “Adicto” lo cual en un futuro puede llevar a sesgos en el modelo de predicción.
 Las variables más prometedoras que encontramos fueron: 
 `horas_diarias_pantalla`,`horas_redes_sociales` ratio `ratio_finde_diario` y `nivel_estres` reúnen información muy relacionada con `etiqueta_de_adiccion`.
 `horas_diarias_pantalla`: Las personas que usan más tiempo su celular son las que tienen la mayor cantidad de adictos.
