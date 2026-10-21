@@ -1014,3 +1014,8 @@ Por último hemos encontrado que el factor más determinante en clasificar a una
 El archivo no incluye documentación sobre el muestreo, instrumento de medición, país, periodo de recolección ni procedimiento de etiquetado. En consecuencia, la muestra no debe asumirse representativa de la población universitaria peruana ni de un grupo demográfico específico. Además, el término "adicción" debe tratarse como una etiqueta del dataset y no como un diagnóstico clínico. La evidencia académica recomienda emplear instrumentos validados y distinguir entre uso frecuente y uso problemático @Kwon2013; @Csibi2018.
 
 # Referencias
+
+```{python}
+
+df_clean.to_csv("df_clean.csv", index=False)
+```
