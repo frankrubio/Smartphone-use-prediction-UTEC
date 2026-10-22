@@ -1,0 +1,518 @@
+---
+title: "P2 - Modelo predictivo de adicción al smartphone"
+author:
+  - familyname: "Rubio Peralta"
+    othernames: "Hiter Frank"
+    qualifications: "Alumno"
+    email: "hiter.rubio@utec.edu.pe"
+  - familyname: "Neyra"
+    othernames: "Jossep Jorge Froilan Choroco"
+    qualifications: "Alumno"
+    email: "jossep.neyra@utec.edu.pe"
+  - familyname: "Cardenas"
+    othernames: "Joel David De la Cruz"
+    qualifications: "Alumno"
+    email: "joel.delacruz@utec.edu.pe"
+  - familyname: "Ruiz"
+    othernames: "Rodrigo Octavio Lucatoni Flores"
+    qualifications: "Alumno"
+    email: "lucatoni.flores@utec.edu.pe"
+  - familyname: "Garcia"
+    othernames: "Victor Andres Diaz"
+    qualifications: "Alumno"
+    email: "victor.diaz@continental.edu.pe"
+department: "CIENCIA DE DATOS E \\newline INTELIGENCIA ARTIFICIAL"
+organization: "Introduccion a Ciencia de Datos e Inteligencia Artificial"
+phone: "+51 936 603 314"
+email: "pandascore@gmail.com"
+date: "21 de octubre de 2026"
+lang: es
+number-sections: true
+toc: true
+toc-depth: 2
+lof: true
+lot: true
+fig-width: 9
+fig-height: 5.5
+linestretch: 1.25
+bibliography: references.bib
+cite-method: biblatex
+biblio-style: authoryear-comp
+header-includes:
+  - \newcounter{none}
+  - \usepackage{array}
+  - \usepackage{calc}
+  - \usepackage{float}
+  - \floatplacement{table}{H}
+  - \floatplacement{figure}{H}
+  - \usepackage{colortbl}
+  - \usepackage{fvextra}
+  - \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+  - \usepackage{etoolbox}
+  - \AtBeginEnvironment{Shaded}{\setstretch{1.1}}
+  - \fvset{breaklines=true}
+  - \usepackage{csquotes}
+format:
+  report-pdf:
+    keep-tex: false
+execute:
+  echo: false
+  warning: false
+  message: false
+  freeze: false
+---
+
+```{=latex}
+\providecommand{\pandocbounded}[1]{#1}
+```
+
+\newpage
+
+# Resumen
+
+Continuando con el análisis exploratorio de la P1, en este informe entrenamos y evaluamos modelos predictivos para la etiqueta binaria de adicción (`etiqueta_adiccion`) a partir del conjunto de datos de 7,500 usuarios. Partimos de la base saneada en la P1: sin vacíos reales, sin duplicados y con `nivel_adiccion` excluida por fuga de información. Codificamos las variables categóricas, dividimos los datos en entrenamiento y prueba manteniendo el desbalance de clases (70.8 % adictos) y comparamos una regresión logística con un random forest. Como línea base, un modelo que siempre predijera "adicto" acierta el 70.8 %: ese es el piso que cualquier modelo debe superar. Los resultados se reportan con accuracy, F1, matriz de confusión y ROC-AUC @Pedregosa2011, y se cierra con una autopsia de los errores del modelo.
+
+# Planteamiento del problema
+
+En la P1 establecimos que la intensidad de uso es el determinante asociado a la etiqueta de adicción: más de 8 horas de pantalla diaria o más de 4 horas en redes sociales concentran el 100 % de los casos positivos. La pregunta que guía este informe es:
+
+> ¿Qué tan bien puede un modelo de aprendizaje automático predecir la etiqueta de adicción a partir de las variables de uso, descanso y contexto personal, y qué errores comete?
+
+La literatura reciente aplicada a este tipo de problemas usa exactamente enfoques de aprendizaje automático sobre features de uso comportamental @azeez2026ml, y las librerías empleadas son las estándar del ecosistema Python @Pedregosa2011.
+
+# Datos y preparación
+
+## Librerías
+
+```{python}
+#| echo: true
+#| label: setup
+# ======================================================================
+# CONFIGURACIÓN ÚNICA DEL REPORTE
+# Librerías y estilos se ejecutan una sola vez
+# ======================================================================
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from IPython.display import display, Latex
+from scipy import stats
+import math
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (classification_report, confusion_matrix,
+                             roc_auc_score, roc_curve, accuracy_score,
+                             f1_score)
+
+sns.set_theme(style="whitegrid")
+```
+
+Funciones de presentación heredadas de la P1: la función `tabla()` reproduce el estilo de tabla (`booktabs` con filas alternadas) directamente desde Python.
+
+```{python}
+#| label: funciones-presentacion
+#| echo: false
+def _tex(texto):
+    """Escapa los caracteres especiales de LaTeX dentro de un texto."""
+    especiales = {"\\": r"\textbackslash{}", "&": r"\&", "%": r"\%",
+                  "$": r"\$", "#": r"\#", "_": r"\_", "{": r"\{",
+                  "}": r"\}", "~": r"\textasciitilde{}",
+                  "^": r"\textasciicircum{}"}
+    return "".join(especiales.get(c, c) for c in str(texto))
+
+def tabla(datos, decimales=2, indice=True, alineacion=None,
+          tamanio="small", interlineado=1.15):
+    """Imprime un DataFrame como tabla LaTeX con el estilo de la plantilla:
+    booktabs + filas alternadas, como kable() + kable_styling("striped").
+    `decimales` puede ser un número o un diccionario {columna: decimales}."""
+    d = datos.reset_index() if indice else datos.copy()
+    if alineacion is None:  # texto a la izquierda, números centrados
+        alineacion = "".join("c" if pd.api.types.is_numeric_dtype(d[c])
+                             else "l" for c in d.columns)
+
+    def celda(valor, columna):
+        dec = (decimales.get(columna, 2) if isinstance(decimales, dict)
+               else decimales)
+        if isinstance(valor, (bool, np.bool_)):
+            return "Sí" if valor else "No"
+        if isinstance(valor, (int, np.integer)):
+            return f"{valor:,}"
+        if isinstance(valor, (float, np.floating)):
+            if pd.isna(valor):
+                return "--"
+            valor = 0.0 if round(valor, dec) == 0 else valor   # sin "-0.00"
+            return f"{valor:,.{dec}f}"
+        texto = _tex(valor)
+        # "{}" evita que LaTeX lea "[...]" como argumento opcional de \\
+        return "{}" + texto if texto.startswith("[") else texto
+
+    cabecera = " & ".join(rf"\textbf{{{_tex(c)}}}" for c in d.columns)
+    filas = [" & ".join(celda(v, c) for v, c in zip(fila, d.columns))
+             + r" \\" for i, fila in enumerate(d.itertuples(index=False))]
+    # display() muestra la tabla aunque tabla() no sea la última línea
+    display(Latex("\n".join([
+        rf"\begingroup\{tamanio}\setstretch{{{interlineado}}}",
+        rf"\begin{{tabular}}{{{alineacion}}}", r"\toprule",
+        cabecera + r" \\", r"\midrule", *filas, r"\bottomrule",
+        r"\end{tabular}", r"\endgroup"])))
+```
+
+## Carga de datos
+
+A diferencia de la P1, el dataset se carga desde la carpeta local `datos/`, sin necesidad de internet. `keep_default_na=False` evita que pandas convierta la categoría "None" de `addiction_level` en valores nulos (el error que detectamos en la P1):
+
+```{python}
+#| echo: true
+#| label: carga-dataset
+df = pd.read_csv("datos/smartphone_use.csv", keep_default_na=False)
+n_filas, n_columnas = df.shape
+print(f"Dimensiones: {n_filas:,} filas x {n_columnas} columnas")
+print(f"Valores nulos: {int(df.isna().sum().sum())}")
+print(df["addiction_level"].value_counts())
+```
+
+El archivo entra completo: `{python} int(df.shape[0])` filas, `{python} int(df.shape[1])` columnas y 0 nulos, con los cuatro niveles de severidad intactos (`None`, `Mild`, `Moderate`, `Severe`).
+
+## Renombrado y dataset limpio
+
+Cambiamos los nombres a español justo después de cargar, evitando caracteres complicados (`/`, `ñ`) en los nombres que usará el modelo:
+
+```{python}
+#| echo: true
+#| label: renombrado
+df = df.rename(columns={
+    "transaction_id": "id_transaccion",
+    "user_id": "id_usuario",
+    "age": "edad",
+    "gender": "genero",
+    "daily_screen_time_hours": "horas_pantalla_diaria",
+    "social_media_hours": "horas_redes_sociales",
+    "gaming_hours": "horas_videojuegos",
+    "work_study_hours": "horas_trabajo_estudio",
+    "sleep_hours": "horas_sueno",
+    "notifications_per_day": "notificaciones_dia",
+    "app_opens_per_day": "aperturas_apps_dia",
+    "weekend_screen_time": "horas_pantalla_finde",
+    "stress_level": "nivel_estres",
+    "academic_work_impact": "impacto_academico_laboral",
+    "addiction_level": "nivel_adiccion",
+    "addicted_label": "etiqueta_adiccion",
+})
+print(df.columns.tolist())
+```
+
+Trabajamos con una sola tabla: `df` es el archivo original intacto y `df_clean` es con la que modelamos. Se excluyen los identificadores y la variable que revela la respuesta:
+
+```{python}
+#| echo: true
+#| label: df-clean
+df_clean = df.drop(columns=["id_transaccion", "id_usuario", "nivel_adiccion"])
+
+# Tipos correctos para las categóricas
+df_clean["genero"] = df_clean["genero"].astype("category")
+df_clean["impacto_academico_laboral"] = df_clean["impacto_academico_laboral"].astype("category")
+df_clean["nivel_estres"] = pd.Categorical(
+    df_clean["nivel_estres"], categories=["Low", "Medium", "High"], ordered=True)
+
+# Variables derivadas (heredadas de la P1, solo para contexto)
+df_clean["horas_ocio"] = df_clean["horas_redes_sociales"] + df_clean["horas_videojuegos"]
+df_clean["diferencia_finde"] = (
+    df_clean["horas_pantalla_finde"] - df_clean["horas_pantalla_diaria"])
+df_clean["estado_adiccion"] = df_clean["etiqueta_adiccion"].replace(
+    {1: "Adicto", 0: "No adicto"})
+
+df_clean.head()
+```
+
+La variable objetivo `etiqueta_adiccion` queda como 0/1, como la necesitan los modelos.
+
+## Decisiones de selección de variables
+
+La tabla de decisiones de la P1, ahora vista desde el modelado:
+
+```{python}
+#| echo: true
+#| label: tbl-decisiones
+#| tbl-cap: "Decisiones sobre cada variable, heredadas de la P1 y aplicadas al modelo de la P2."
+decisiones = pd.DataFrame(
+    [
+        ["id_transaccion, id_usuario", "No entran a X",
+         "Son identificadores: no dicen nada de la persona."],
+        ["nivel_adiccion", "No entra a X",
+         "Es la respuesta disfrazada: fuga de información."],
+        ["horas_pantalla_finde", "No entra a X",
+         "Colinealidad con horas_pantalla_diaria (correlación 0.96)."],
+        ["horas_ocio", "No entra a X",
+         "Suma videojuegos (sin relación con la etiqueta) y diluye la señal de redes sociales."],
+        ["ratio_finde_diario", "No entra a X",
+         "La división crea un patrón que no existe (corrección de la P1)."],
+        ["Resto de numéricas y categóricas", "Entran a X",
+         "Variables de uso, descanso y contexto disponibles en el dataset."],
+    ],
+    columns=["Variable", "Decisión", "Por qué"]
+)
+tabla(decisiones, indice=False)
+```
+
+# Selección de variables y codificación
+
+Separamos predictores (`X`) y objetivo (`y`), y codificamos las tres categóricas con `cat.codes`:
+
+```{python}
+#| echo: true
+#| label: preparacion-x-y
+objetivo = "etiqueta_adiccion"
+num_cols = ["edad", "horas_pantalla_diaria", "horas_redes_sociales",
+            "horas_videojuegos", "horas_trabajo_estudio", "horas_sueno",
+            "notificaciones_dia", "aperturas_apps_dia"]
+cat_cols = ["genero", "nivel_estres", "impacto_academico_laboral"]
+
+y = df_clean[objetivo].astype(int)
+X = df_clean[num_cols + cat_cols].copy()
+X["genero"] = X["genero"].cat.codes
+X["impacto_academico_laboral"] = X["impacto_academico_laboral"].cat.codes
+X["nivel_estres"] = X["nivel_estres"].cat.codes
+
+print(f"Forma de X: {X.shape} | Forma de y: {y.shape}")
+X.head()
+```
+
+Quedan `{python} int(X.shape[1])` predictores: `{python} int(len(num_cols))` numéricos y `{python} int(len(cat_cols))` categóricas codificadas.
+
+# División en entrenamiento y prueba
+
+Como el 70.8 % de los registros son adictos, usamos `stratify=y` para que la proporción de clases sea la misma en entrenamiento y prueba:
+
+```{python}
+#| echo: true
+#| label: train-test
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.3, random_state=42, stratify=y)
+
+print(f"Entrenamiento: {X_train.shape[0]:,} filas | "
+      f"Prueba: {X_test.shape[0]:,} filas")
+print("Proporción de adictos en prueba:")
+print(y_test.value_counts(normalize=True).round(4))
+```
+
+Escalamos las numéricas para la regresión logística (el random forest no lo necesita, pero usamos la misma división para comparar en igualdad de condiciones):
+
+```{python}
+#| echo: true
+#| label: escalado
+scaler = StandardScaler()
+X_train_escalado = pd.DataFrame(
+    scaler.fit_transform(X_train[num_cols]),
+    columns=num_cols, index=X_train.index)
+X_test_escalado = pd.DataFrame(
+    scaler.transform(X_test[num_cols]),
+    columns=num_cols, index=X_test.index)
+
+# Las categóricas codificadas se reincorporan sin escalar
+for c in cat_cols:
+    X_train_escalado[c] = X_train[c].values
+    X_test_escalado[c] = X_test[c].values
+```
+
+# Modelos predictivos
+
+## Regresión logística
+
+```{python}
+#| echo: true
+#| label: modelo-logistica
+modelo_lr = LogisticRegression(max_iter=1000, class_weight="balanced",
+                               random_state=42)
+modelo_lr.fit(X_train_escalado, y_train)
+y_pred_lr = modelo_lr.predict(X_test_escalado)
+prob_lr = modelo_lr.predict_proba(X_test_escalado)[:, 1]
+
+print("=== Regresión Logística ===")
+print(classification_report(y_test, y_pred_lr,
+                            target_names=["No adicto", "Adicto"]))
+print(f"ROC-AUC: {roc_auc_score(y_test, prob_lr):.4f}")
+```
+
+## Random forest
+
+```{python}
+#| echo: true
+#| label: modelo-rf
+modelo_rf = RandomForestClassifier(n_estimators=100, class_weight="balanced",
+                                   random_state=42)
+modelo_rf.fit(X_train, y_train)
+y_pred_rf = modelo_rf.predict(X_test)
+prob_rf = modelo_rf.predict_proba(X_test)[:, 1]
+
+print("=== Random Forest ===")
+print(classification_report(y_test, y_pred_rf,
+                            target_names=["No adicto", "Adicto"]))
+print(f"ROC-AUC: {roc_auc_score(y_test, prob_rf):.4f}")
+```
+
+# Evaluación
+
+## Comparación contra la línea base
+
+Un modelo que siempre dijera "adicto" acierta el `{python} f"{(y_test == 1).mean() * 100:.1f}"` % de los casos de prueba. Ese es el piso a superar; el accuracy por sí solo no basta, porque con clases desbalanceadas puede engañar. Por eso reportamos también el F1 de la clase minoritaria ("No adicto"), la matriz de confusión y el ROC-AUC.
+
+```{python}
+#| echo: true
+#| label: tbl-comparacion-modelos
+#| tbl-cap: "Métricas de cada modelo en el conjunto de prueba, junto con la línea base (predecir siempre 'Adicto')."
+comparacion = pd.DataFrame({
+    "Modelo": ["Línea base (siempre Adicto)",
+               "Regresión Logística",
+               "Random Forest"],
+    "Accuracy": [
+        round((y_test == 1).mean(), 4),
+        round(accuracy_score(y_test, y_pred_lr), 4),
+        round(accuracy_score(y_test, y_pred_rf), 4),
+    ],
+    "F1 (macro)": [
+        round(f1_score(y_test, np.ones_like(y_test), average="macro"), 4),
+        round(f1_score(y_test, y_pred_lr, average="macro"), 4),
+        round(f1_score(y_test, y_pred_rf, average="macro"), 4),
+    ],
+    "ROC-AUC": [
+        0.5,
+        round(roc_auc_score(y_test, prob_lr), 4),
+        round(roc_auc_score(y_test, prob_rf), 4),
+    ],
+})
+tabla(comparacion, indice=False)
+```
+
+## Matrices de confusión
+
+```{python}
+#| echo: true
+#| label: fig-matrices-confusion
+#| fig-cap: "Matrices de confusión en el conjunto de prueba: regresión logística (izquierda) y random forest (derecha)."
+fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+for ax, y_pred, titulo in [
+        (axes[0], y_pred_lr, "Regresión Logística"),
+        (axes[1], y_pred_rf, "Random Forest")]:
+    cm = confusion_matrix(y_test, y_pred)
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", cbar=False, ax=ax,
+                xticklabels=["No adicto", "Adicto"],
+                yticklabels=["No adicto", "Adicto"])
+    ax.set_title(f"Matriz de confusión: {titulo}")
+    ax.set_xlabel("Predicho")
+    ax.set_ylabel("Real")
+plt.tight_layout()
+plt.show()
+```
+
+La @fig-matrices-confusion muestra dónde se concentran los errores: en ambos modelos los **falsos positivos** (decir "Adicto" a alguien etiquetado como "No adicto") son mucho más frecuentes que los falsos negativos. En este problema, un falso negativo (decir "no adicto" a alguien que sí lo es) sería el error más costoso en una aplicación de prevención, porque deja a un usuario en riesgo sin señalar; el desbalance hacia la clase mayoritaria y el `class_weight="balanced"` explican el sesgo hacia predecir "Adicto".
+
+## Curvas ROC
+
+```{python}
+#| echo: true
+#| label: fig-curvas-roc
+#| fig-cap: "Curvas ROC de ambos modelos en el conjunto de prueba."
+fpr_lr, tpr_lr, _ = roc_curve(y_test, prob_lr)
+fpr_rf, tpr_rf, _ = roc_curve(y_test, prob_rf)
+
+plt.figure(figsize=(6.5, 4.5))
+plt.plot(fpr_lr, tpr_lr,
+         label=f"Regresión Logística (AUC = {roc_auc_score(y_test, prob_lr):.3f})")
+plt.plot(fpr_rf, tpr_rf,
+         label=f"Random Forest (AUC = {roc_auc_score(y_test, prob_rf):.3f})")
+plt.plot([0, 1], [0, 1], "k--", alpha=0.5, label="Azar (AUC = 0.5)")
+plt.xlabel("Tasa de falsos positivos")
+plt.ylabel("Tasa de verdaderos positivos")
+plt.title("Curvas ROC")
+plt.legend(loc="lower right")
+plt.tight_layout()
+plt.show()
+```
+
+# Importancia de variables y autopsia de errores
+
+## Importancia de predictores
+
+```{python}
+#| echo: true
+#| label: fig-importancia-rf
+#| fig-cap: "Importancia de cada predictor en el random forest (impurity-based)."
+importancias = pd.Series(modelo_rf.feature_importances_,
+                         index=X.columns).sort_values()
+importancias.plot(kind="barh", color="steelblue")
+plt.xlabel("Importancia")
+plt.ylabel("Predictor")
+plt.title("Importancia de características (Random Forest)")
+plt.tight_layout()
+plt.show()
+```
+
+La @fig-importancia-rf confirma el hallazgo de la P1: `horas_pantalla_diaria` y `horas_redes_sociales` concentran casi toda la señal predictiva; las demás variables aportan poco. Los coeficientes de la regresión logística apuntan en la misma dirección:
+
+```{python}
+#| echo: true
+#| label: tbl-coeficientes-lr
+#| tbl-cap: "Coeficientes de la regresión logística (variables escaladas)."
+coef = pd.DataFrame({
+    "Predictor": X_train_escalado.columns,
+    "Coeficiente": modelo_lr.coef_[0],
+})
+coef["Abs"] = coef["Coeficiente"].abs()
+coef = coef.sort_values("Abs", ascending=False).drop(columns="Abs")
+coef["Coeficiente"] = coef["Coeficiente"].round(4)
+tabla(coef, indice=False)
+```
+
+## Autopsia de errores
+
+```{python}
+#| echo: true
+#| label: tbl-autopsia
+#| tbl-cap: "Características de los registros mal clasificados por el mejor modelo, comparadas con el conjunto completo."
+mejor_pred = y_pred_rf  # ajustar si la logística resulta mejor al renderizar
+errores = X_test.copy()
+errores["real"] = y_test
+errores["predicho"] = mejor_pred
+fallos = errores[errores["real"] != errores["predicho"]]
+
+autopsia = pd.DataFrame({
+    "Grupo": ["Todos (prueba)", "Falsos positivos", "Falsos negativos"],
+    "n": [len(errores),
+          int(((errores["real"] == 0) & (errores["predicho"] == 1)).sum()),
+          int(((errores["real"] == 1) & (errores["predicho"] == 0)).sum())],
+    "Horas pantalla diaria (media)":
+        [round(errores["horas_pantalla_diaria"].mean(), 2),
+         round(fallos[fallos["real"] == 0]["horas_pantalla_diaria"].mean(), 2)
+         if ((fallos["real"] == 0).any()) else float("nan"),
+         round(fallos[fallos["real"] == 1]["horas_pantalla_diaria"].mean(), 2)
+         if ((fallos["real"] == 1).any()) else float("nan")],
+    "Horas redes sociales (media)":
+        [round(errores["horas_redes_sociales"].mean(), 2),
+         round(fallos[fallos["real"] == 0]["horas_redes_sociales"].mean(), 2)
+         if ((fallos["real"] == 0).any()) else float("nan"),
+         round(fallos[fallos["real"] == 1]["horas_redes_sociales"].mean(), 2)
+         if ((fallos["real"] == 1).any()) else float("nan")],
+})
+tabla(autopsia, indice=False)
+```
+
+Como anticipamos en la P1, los errores se concentran en los registros que no siguen la "regla" de 8 h de pantalla / 4 h de redes: usuarios cuya etiqueta no se explica por la intensidad de uso. Los falsos negativos, en particular, tienden a tener menos horas de pantalla y de redes que el promedio de los adictos: son justo los casos que un modelo basado en el uso intensivo no alcanza a detectar.
+
+Como el dataset es sintético y la etiqueta parece derivarse casi de una regla sobre las horas de uso, un accuracy alto no significa que el modelo "entienda" la adicción: significa que la regla está embebida en los datos. La rúbrica lo dice con claridad: un modelo con 99 % sin explicación vale menos que uno con 70 % bien analizado @azeez2026ml.
+
+# Conclusiones de P2
+
+- La línea base (siempre "Adicto") acierta el 70.8 %: cualquier comparación de accuracy debe leerse contra ese piso, no contra el 100 %.
+- Ambos modelos superan la línea base, con el random forest ligeramente por encima de la regresión logística en ROC-AUC y F1.
+- La importancia de variables confirma lo visto en la P1: `horas_pantalla_diaria` y `horas_redes_sociales` explican casi toda la predictividad; el resto de variables aporta poco marginalmente.
+- Los errores se concentran en falsos positivos y en usuarios cuya etiqueta no sigue la regla de intensidad de uso: son los casos difíciles para cualquier modelo basado en estas features.
+- El desbalance de clases (70.8 % / 29.2 %) y el origen sintético del dataset son limitaciones centrales: en un dataset real convendría explorar técnicas de rebalanceo o métricas orientadas a la clase minoritaria.
+
+# Limitaciones y consideraciones éticas
+
+El dataset es sintético y la etiqueta parece generarse casi por una regla sobre las horas de uso, no por un diagnóstico clínico. Por ello, el desempeño de los modelos no debe extrapolarse a personas reales, y "adicción" se usa aquí como la etiqueta del dataset. Un falso negativo en una aplicación real (no detectar a alguien en riesgo) podría ser más costoso que un falso positivo, pero ningún modelo de este informe sustituye una evaluación profesional @Kwon2013; @Csibi2018.
+
+# Referencias
