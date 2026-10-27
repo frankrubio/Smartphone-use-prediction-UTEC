@@ -70,7 +70,7 @@ execute:
 
 # Resumen
 
-Contando con un conjunto de datos de 7,500 usuarios, se analiza el uso diario del teléfono inteligente y la etiqueta asignada a la adicción. En un intento de ser rigorosos en el análisis, realizamos la limpieza de datos eliminando el identificador, las variables no útiles y la variable repetitiva que ocultaba la respuesta de manera anticipada (evitando así la fuga de información) y a la vez construyendo nuevos indicadores útiles como las horas de ocio y las comparaciones entre el uso del teléfono inteligente durante fin de semana y días entre semana. Los resultados nos muestran que la intensidad de uso es el determinante: más de 8 horas de uso diario o más de 4 horas en redes sociales son los mínimos a partir de los cuales el 100% de los usuarios son etiquetados en condiciones de riesgo. Llaman también la atención los datos de los usuarios no adictos, pues estos realizan una autorregulación del uso del teléfono inteligente en el curso de la semana, dejando para el fin de semana el consumo, en contraposición a los usuarios en riesgo que exhiben un uso continuo e intenso. Lo que hemos obtenido nos deja la base de datos lista y saneada para pasar a la siguiente etapa, donde entrenaremos un modelo predictivo de aprendizaje automático.
+Contando con un conjunto de datos de 7,500 usuarios, se analiza el uso diario del teléfono inteligente y la etiqueta asignada a la adicción. En un intento de ser rigorosos en el análisis, realizamos la limpieza de datos eliminando el identificador, las variables no útiles y la variable repetitiva que ocultaba la respuesta de manera anticipada (evitando así la fuga de información) y a la vez construyendo nuevos indicadores útiles como las horas de ocio y las comparaciones entre el uso del teléfono inteligente durante fin de semana y días entre semana. Los resultados nos muestran que la intensidad de uso es el determinante: más de 8 horas de uso diario o más de 4 horas en redes sociales son los mínimos a partir de los cuales el 100% de los usuarios son etiquetados en condiciones de riesgo. El uso de fin de semana no separa a los grupos: ambos suben alrededor de 1.74 horas frente a su uso diario, por lo que no hay evidencia de autorregulación en los no adictos. Lo que hemos obtenido nos deja la base de datos lista y saneada para pasar a la siguiente etapa, donde entrenaremos un modelo predictivo de aprendizaje automático.
 
 # Planteamiento del problema
 
@@ -198,7 +198,7 @@ n_filas, n_columnas = df.shape
 print(f"Dimensiones: {n_filas:,} filas x {n_columnas} columnas")
 ```
 
-El archivo se carga completo, con `{python} (df.shape[0])` filas y `{python} df.shape[1]` columnas. `df` no se modifica en ningún momento: todas las transformaciones posteriores se aplican sobre copias, de modo que cada decisión puede contrastarse contra el archivo original.
+El archivo se carga completo, con `{python} (df.shape[0])` filas y `{python} df.shape[1]` columnas. `df` se vuelve a leer una sola vez, con `keep_default_na=False` (ver @sec-val-nul); todas las transformaciones posteriores se aplican sobre copias, de modo que cada decisión puede contrastarse contra el archivo original.
 
 ## Dimensiones y estructura
 
@@ -232,7 +232,7 @@ tabla(estructura)
 - Las nueve variables de uso, edad y sueño se cargaron como números (`int64` o `float64`) y no como texto, que es el error silencioso más frecuente al leer un CSV.
 - `addicted_label` se cargó como entero, pero es una variable **categórica binaria**: el tipo de dato no coincide con su naturaleza estadística, y así se tratará en el análisis.
 - Las columnas de texto (tipo `object` en pandas 2 o `str` en pandas 3) son de dos clases muy distintas: `transaction_id` y `user_id` tienen `{python} df["user_id"].nunique()` valores distintos, uno por fila, lo que las identifica como **identificadores**; en cambio, `gender`, `stress_level`, `academic_work_impact` y `addiction_level` tienen entre 2 y 4 valores, es decir, son **categóricas**.
-- Solo `addiction_level` presenta nulos `{python} df["addiction_level"].isna().sum()`, y muestra `{python} df["addiction_level"].nunique()` valores distintos, cuando una escala de severidad suele tener cuatro niveles.
+- Solo `addiction_level` presenta valores nulos en la lectura por defecto (`{python} df["addiction_level"].isna().sum()` casos). Como se explica en la @sec-val-nul, esos valores no son nulos: son la categoría `None`.
 
 ```{python}
 #| echo: false
@@ -289,7 +289,7 @@ print(nulos_por_columna[nulos_por_columna > 0])
 print(f"\nFilas duplicadas: {filas_duplicadas}")
 ```
 
-Se encontraron **819 valores nulos** en la columna `nivel_adicción`, esto es aproximadamente un 10.92% de los registros del dataset. Por otro lado, no hay filas duplicadas, probablemente esto sea porque los usuarios con `nivel_adiccion = None` simplemente no completaron esa escala de severidad. A partir de este problema, decidimos **excluir** a la variable `nivel_adicción` ya que esta representa una fuga de información y no aporta información nueva.
+La lectura por defecto de pandas marca **819 valores nulos** en `nivel_adiccion`, es decir, el 10.92 % de los registros. No hay filas duplicadas. Esos 819 valores no son datos perdidos: son la categoría `None` (ver @sec-val-nul).
 
 ```{python}
 #| label: tbl-describe-num
@@ -306,12 +306,12 @@ Los rangos que se observan en la anterior tabla `df.describe()` son coherentes c
 
 # Preprocesamiento y decisiones de data wrangling{#sec-val-nul}
 
-Notamos que hay 819 valores nulos en la columna "nivel_adiccion", por lo que procederemos a analizar las filas que contengan valores nulos en esta columna (la siguiente tabla es de valores nulos):
+Revisamos las filas marcadas como nulas en `nivel_adiccion` (@tbl-nulos-head) para confirmar si realmente faltan datos:
 
 ```{python}
 #| echo: true
 #| label: tbl-nulos-head
-#| tbl-cap: "Primeras filas con valores nulos en nivel de adicción."
+#| tbl-cap: "Primeras filas con nivel_adiccion = \"None\" (pandas las lee como nulas por defecto)."
 columnas_mostrar = [
     "ID_transaccion", "edad", "genero",
     "horas_diarias_pantalla", "horas_sueño",
@@ -324,7 +324,7 @@ df_adiccionnull_head = df_adiccionnull.head()
 tabla(df_adiccionnull_head[columnas_mostrar], indice=False, tamanio="scriptsize", interlineado=1.1)
 ```
 
-Pero, ¿son realmente valores nulos?, tras una revisión manual del dataset y de la documentación del autor descubrimos que los valores "None" presentes en el dataset son realmente cadenas de texto, que literalmente nos querían decir que el nivel de adicción del usuario es "Ninguno", y por lo tanto "None" es realmente una categoría de `adicction_level` procederemos a comprobar aquello:
+Los valores son en realidad el texto `"None"`, que significa que el usuario no tiene adicción (nivel "Ninguno"). Para que pandas no lo convierta en nulo, volvemos a leer el archivo con `keep_default_na=False`:
 
 ```{python}
 #|echo: True
@@ -335,7 +335,7 @@ df = pd.read_csv(
 )
 ```
 
-Con `keep_default_na=False`, pandas deja de interpretar automáticamente cadenas como "None" como valores nulos
+Con `keep_default_na=False`, pandas deja de convertir la cadena "None" en nulo.
 
 ```{python}
 #|echo: False
@@ -350,7 +350,7 @@ df_renombrado = df.rename({'transaction_id':'ID_transaccion' , 'user_id':'ID_usu
 df_renombrado[df_renombrado["nivel_adiccion"] == "None"]["etiqueta_de_adiccion"].value_counts()
 ```
 
-Aqui se observa que de los 819 usuarios con `addiction_level = "None"`, los 819 tienen `addicted_label = 0`. Por lo tanto, hay evidencia sólida de que "None" representa la ausencia de un nivel de adicción y no un dato perdido.
+De los 819 usuarios con `nivel_adiccion = "None"`, los 819 tienen `etiqueta_de_adiccion = 0`. Por lo tanto, "None" representa la ausencia de adicción y no un dato perdido.
 
 ## Revisión de fuga de información
 
@@ -362,9 +362,7 @@ crosstab = pd.crosstab(df_renombrado["nivel_adiccion"], df_renombrado["etiqueta_
 tabla(crosstab)
 ```
 
-En la tabla cruzada Notamos que la columna `nivel_adiccion` o cae en 0 cuando es baja o cae en 1 cuando es media o alta, no hay ninguna excepción para alguien de adicción media p alta, la información de `etiqueta_de_adiccion` es la necesaria y objetivo para este análisis puesto que queremos encontrar qué patrones de uso, descanso y contexto personal están asociados con la etiqueta de adicción en el conjunto de datos que estamos abordando.
-
-Notamos que la columna `nivel_adiccion` *o cae en 0 cuando es baja o ninguno* o *cae en 1 cuando es media o alta*, no hay ninguna excepción para alguien de adicción media p alta, la información de `etiqueta_de_adiccion` es la necesaria y objetivo para este análisis puesto que queremos encontrar qué patrones de uso, descanso y contexto personal están asociados con la etiqueta de adicción en el conjunto de datos que estamos abordando. Esto permitirá no repetir información en el proceso de modelamiento, ya que `nivel_adiccion` ya revelaría que `etiqueta_de_adiccion` es 1 o 0. Por lo tanto, con esto confirmamos que incluir `nivel_adiccion` en el predictor del modelo P2 sería igual a una **fuga de información**, entonces lo excluiremos de las variables predictoras. Además, se descartan `ID_transaccion` e `ID_usuario` al ser solo identificadores sin un valor predictivo. 
+La tabla cruzada muestra una correspondencia exacta: `None` y `Mild` siempre tienen `etiqueta_de_adiccion = 0`, y `Moderate` y `Severe` siempre tienen `1`. Como `nivel_adiccion` determina la etiqueta, incluirlo como predictor en P2 sería una **fuga de información**, así que se excluye. `ID_transaccion` e `ID_usuario` también se descartan, porque solo son identificadores sin valor predictivo. La etiqueta `etiqueta_de_adiccion` es el objetivo de este análisis. 
 
 **Contrato de nombres para el resto del proyecto** (acordado por el equipo, para que el código de todos encaje sin romperse al juntarlo): a partir de aquí se crean y se reutilizan siempre las mismas variables:
 
@@ -402,7 +400,7 @@ tabla(decisiones, indice=False)
 
 
 
-### Decirle a  python que tipo de catégorica es cada variable categórica.
+### Definir el tipo de cada variable categórica
 ```{python}
 #| echo: true
 #| label: Veamos que las variables categoricas se guardan como texto, así que lo cambiaremos
@@ -444,12 +442,14 @@ vista2_df_clean.index.name = "Columna"
 tabla(vista2_df_clean, tamanio="footnotesize")
 ```
 
-Con esto se confirma que `estado_adiccion` es solo una traducción de `etiqueta_de_adiccion` a etiquetas legibles: 5308 registros se etiquetaron como "Adicto" (equivalente a 1) y 2192 como "No adicto" (equivalente a 0). No se está introduciendo nada nuevo.
-Las variables `num_cols` y `cat_cols` actualizadas son:
-- `num_cols`: edad, horas_diarias_pantalla, horas_redes_sociales, horas_videojuegos, horas_trabajo/estudio, horas_sueño, notificaciones_por_dia, aperturas_apps_por_dia, tiempo_en_pantalla_fin_de_semana, horas_ocio, ratio_finde_diario, etiqueta_de_adiccion
-- `cat_cols`: genero, nivel_estres, impacto_academico/laboral, estado_adiccion
+Con esto se confirma que `estado_adiccion` es solo una traducción de `etiqueta_de_adiccion` a etiquetas legibles: 5,308 registros son "Adicto" (equivalente a 1) y 2,192 son "No adicto" (equivalente a 0). No se introduce información nueva.
 
-### Correción del ratio_finde_diario
+Las listas de variables que se usan en el resto del reporte son:
+
+- `num_cols`: edad, horas_diarias_pantalla, horas_redes_sociales, horas_videojuegos, horas_trabajo/estudio, horas_sueño, notificaciones_por_dia, aperturas_apps_por_dia, tiempo_pantalla_finde, horas_ocio, ratio_finde_diario
+- `cat_cols`: genero, nivel_estres, impacto_academico/laboral
+
+### Corrección del ratio_finde_diario
 
 ```{python}
 # | echo: True
@@ -463,13 +463,11 @@ df_clean['diferencia_finde'] = df_clean['tiempo_pantalla_finde'] - df_clean['hor
 df_clean.groupby('etiqueta_de_adiccion')['diferencia_finde'].mean()
 ```
 
-"Los usuarios no adictos, pues estos realizan una autorregulación del uso del teléfono inteligente en el curso de la semana, dejando para el fin de semana el consumo, en contraposición a los usuarios en riesgo que exhiben un uso continuo e intenso."
+El `ratio_finde_diario` es mayor en los no adictos (media 1.36) que en los adictos (media 1.23), con una correlación de -0.36 con la etiqueta. Esto no demuestra autorregulación: la columna `diferencia_finde` (fin de semana menos diario) tiene la misma media en ambos grupos, de 1.74 horas. 
 
-En un inicio vimos que las personas no adictas tenían un ratio_finde_diario más alto que las personas adictas, esto nos hizo pensar en un primer momento que las personas no adictas se autorregulaban y distribuían su uso de celular más a los findes, pero esto sería una interpretación no respaldada. A través de una nueva columna llamada diferencia_finde observamos que tanto las personas adictas como no adictas tienen una diferencia muy similar entre tiempo_pantalla_finde y horas_diarias_pantalla siendo apróximadamente 1.74 horas en ambos grupos. 
+Un ratio mayor puede deberse a un uso diario de partida más bajo: dos personas pueden tener ratios distintos con la misma diferencia de horas.
 
-El ratio observado no permite afirmar una mayor 'autorregulación', sino que puede deberse a diferencias en el uso diario de partida. Dos personas puedes tener un ratio distinto aunque su diferencia de horas sean iguales.
-
-Todo esot sugiriendo que el uso del fin de semana refleja principalmente el uso diario más un incremento similar en ambos grupos
+Por lo tanto, el uso de fin de semana refleja sobre todo el uso diario más un incremento similar en ambos grupos.
 
 
 ```{python}
@@ -478,7 +476,7 @@ Todo esot sugiriendo que el uso del fin de semana refleja principalmente el uso 
 print(df_clean[['horas_ocio', 'horas_redes_sociales', 'etiqueta_de_adiccion','horas_videojuegos']].corr())
 ```
 
-Con esto podemos notas que horas ocio tiene una menor correlación con etiqueta_de_adiccion (0.34) que por si solo lo tiene horas_redes_socaiales con etiqueta_de_adiccion (0.41), esto se debería a que horas de videojuego tiene una correlación débil siendo muy cercana a 0 (0.008485). Por eso horas de ocio siendo la suma de estas 2 su correlación es menos que a la correlación de horas_redes_sociales
+Las horas de ocio tienen menor correlación con `etiqueta_de_adiccion` (0.34) que las horas de redes sociales por sí solas (0.41). La causa es que `horas_videojuegos` casi no se correlaciona con la etiqueta (0.008): al sumarla, diluye la señal de redes sociales.
 
 Y aunque la correlación de horas_ocio no sea más alta que la de horas_redes_sociales respecto a la etiqueta_de_adiccion, nos podría servir para poder hacer gráficas y mostrar la distribución de personas adictas con respecto a las horas de ocio y poder ver patrones si podría presentar diferencias en que una persona  es adicta o no
 
@@ -547,7 +545,32 @@ fig.suptitle(
 plt.show()
 ```
 
-Usamos histogramas porque queremos ver la **forma** de la distribución de cada variable numérica: en qué intervalo se concentran los valores, si hay cola y si la distribución es simétrica (@fig-histogramas-numericos). Lo que se observa es que **casi todas las distribuciones son prácticamente planas (uniformes)**: dentro de su rango, cada intervalo aparece con una frecuencia muy parecida, sin concentración en el centro ni colas largas. Un patrón así casi nunca aparece en datos reales y es la señal de que el dataset fue **generado por computadora**. La única excepción es `ratio_finde_diario`, que sí tiene cola hacia la derecha porque es el resultado de dividir dos horas; es un motivo más para descartarlo como predictor. Por lo demás, no esperamos encontrar aquí los patrones clásicos de los estudios sobre adicción al smartphone, y también por eso **no hace falta transformar ninguna variable** antes de pasar a la modelación de la P2.
+Usamos histogramas para ver la **forma** de la distribución de cada variable numérica (@fig-histogramas-numericos). La mayoría son simétricas, sin colas marcadas ni valores atípicos. La excepción es `ratio_finde_diario`, que tiene cola hacia la derecha porque es el cociente de dos horas; es un motivo más para descartarlo como predictor. Como la única variable asimétrica no será predictora, no hace falta transformar ninguna variable antes de la modelación de la P2.
+
+```{python}
+#| echo: true
+#| label: fig-univariado-ocio-ratio
+#| fig-cap: "Distribución de horas de ocio y del ratio fin de semana/diario: histograma (arriba) y boxplot (abajo)."
+fig, axes = plt.subplots(2, 2, figsize=(10, 5.5), constrained_layout=True)
+
+variables_nuevas = [
+    ("horas_ocio", "Horas de ocio (redes + videojuegos)"),
+    ("ratio_finde_diario", "Ratio fin de semana / diario"),
+]
+
+for j, (col, titulo) in enumerate(variables_nuevas):
+    sns.histplot(data=df_clean, x=col, bins=20, color="steelblue", ax=axes[0, j])
+    axes[0, j].set_title(titulo, fontsize=10)
+    axes[0, j].set_xlabel("")
+    axes[0, j].set_ylabel("Frecuencia")
+
+    sns.boxplot(data=df_clean, x=col, color="steelblue", width=0.45, fliersize=2, ax=axes[1, j])
+    axes[1, j].set_xlabel(col.replace("_", " "))
+
+plt.show()
+```
+
+`horas_ocio` y `ratio_finde_diario` son variables derivadas que no tenían boxplot ni resumen univariado; la @fig-univariado-ocio-ratio los muestra en histograma y boxplot. `horas_ocio` es simétrica (media 5.29 h y mediana 5.28 h) y no tiene atípicos. `ratio_finde_diario` tiene asimetría de 1.27, mediana de 1.23 y un rango intercuartílico de 1.15 a 1.34, con 319 atípicos (4.3 % de los registros) según la regla de Tukey.
 
 
 ```{python}
@@ -659,7 +682,7 @@ $$
 Q_k = \text{valor en la posición } \frac{k}{4}(n+1)
 $$ {#eq-cuartiles}
 
-Un punto se considera **atípico** si cae más de 1.5 veces el rango intercuartílico (IQR = Q3 - Q1) por debajo de Q1 o por encima de Q3. Para no dejarlo en nuestra palabra, lo contamos con código en la @tbl-atipicos-iqr: **las nueve variables numéricas tienen 0 atípicos**. En consecuencia, en la @fig-boxplots-numericos se ven cajas limpias, sin puntos sueltos; la afirmación anterior de que había "atípicos aislados en notificaciones y videojuegos" no se sostiene, y por eso no hay ninguna fila que descartar del análisis.
+Un punto se considera **atípico** si cae más de 1.5 veces el rango intercuartílico (IQR = Q3 - Q1) por debajo de Q1 o por encima de Q3. Para no dejarlo en nuestra palabra, lo contamos con código en la @tbl-atipicos-iqr: **las nueve variables numéricas tienen 0 atípicos**. En consecuencia, en la @fig-boxplots-numericos las cajas no tienen puntos sueltos y no hay filas que descartar por atípicos. El único caso con atípicos, `ratio_finde_diario`, se analizó en la sección univariada.
 
 ```{python}
 #| echo: true
@@ -695,7 +718,7 @@ Un comentario por variable, para que cada caja quede interpretada:
 - **`aperturas_apps_por_dia`**: mediana de 98 aperturas, caja de 55 a 140 y rango de 15 a 180. Sin atípicos.
 - **`tiempo_pantalla_finde`**: mediana de 9.26 h, caja de 6.96 h a 11.54 h y rango de 3.58 a 14.88 h; es la que va más arriba, como era de esperarse porque es un día de descanso. Sin atípicos.
 
-En resumen, todos los boxplots muestran cajas parecidas, sin puntos por fuera y sin asimetrías marcadas: otra consecuencia de que los datos fueron generados por computadora.
+En resumen, todos los boxplots muestran cajas parecidas, sin puntos por fuera y sin asimetrías marcadas: lo que es coherente con un dataset sintético.
 
 \newpage
 
@@ -805,7 +828,7 @@ Por otro lado, la etiqueta de adicción presenta una correlación aproximada de 
 
 Estos resultados muestran que las tres variables tienen cierta relación con la etiqueta de adicción. Pero es importante recordar que una correlación no significa necesariamente que exista una relación de causa y efecto. 
 
-Las variables que tienen mayor asocición lineal podemos fijarnos que son cantidad de horas diarias en pantalla, cantidad de horas en redes sociales y tiempo de pantalla en los fines de semanas, siendo aproximadamente 0.6 , 0.4 , 0.6 aproximadamente. A diferencia del resto que cuenta con valores muy cercanos 0.0. Estos resultados podrían ser útil para futuros modelos
+Las variables con mayor asociación lineal con la etiqueta son las horas diarias de pantalla, el tiempo de pantalla de fin de semana y las horas en redes sociales (aprox. 0.6, 0.6 y 0.4). El resto tiene correlaciones cercanas a 0, lo que puede ayudar a decidir predictores para la P2.
 
 La correlación de Pearson mide la fuerza y dirección de la relación lineal entre dos variables, y se calcula a partir de la covarianza y las desviaciones estándar de cada una [@walpole2012probabilidad]:
  
@@ -961,17 +984,17 @@ sns.scatterplot(data=df_renombrado, x= 'horas_videojuegos', y= 'horas_trabajo/es
 #| label: fig-dispersion-edad-pantalla
 #| fig-cap: "Relación entre edad y horas diarias de pantalla, según la etiqueta de adicción."
 
-sns.scatterplot(data=df_renombrado, x= 'horas_redes_sociales', y= 'horas_diarias_pantalla', hue = 'etiqueta_de_adiccion')
+sns.scatterplot(data=df_renombrado, x= 'edad', y= 'horas_diarias_pantalla', hue = 'etiqueta_de_adiccion')
 
 ```
 
-En la @fig-dispersion-trabajo-pantalla podemos observar que a medida que aumentan las horas diarias frente a una pantalla, también parece aumentar la posibilidad de que una persona sea 'adicta'. A partir de las 8 horas, se puede notar que la mayoría de las personas son consideradas adictas. En cambio, en las horas de trabajo y estudio no se observa un patrón claro.
+En la @fig-dispersion-trabajo-pantalla podemos observar que a medida que aumentan las horas diarias frente a una pantalla, también parece aumentar la posibilidad de que una persona sea 'adicta'. A partir de las 8 horas, todas las personas de la muestra son consideradas adictas (100 %). En cambio, en las horas de trabajo y estudio no se observa un patrón claro.
 
-En la @fig-dispersion-sueno-redes, entre las 0 y 4 horas no se logra identificar un patrón a simple vista. Sin embargo, entre las 4 y 6 horas podemos observar que todas las personas son consideradas adictas. Por otro lado, en las horas de sueño tampoco se aprecia un patrón claro relacionado con la adicción.
+En la @fig-dispersion-sueno-redes no se identifica un patrón entre las horas de sueño y la adicción. Sin embargo, con más de 4 horas en redes sociales, todas las personas son consideradas adictas (100 %).
 
 En la @fig-dispersion-notificaciones-sueno y la @fig-dispersion-videojuegos-trabajo no se observa una tendencia clara entre las variables. Lo que sí podemos notar en las gráficas es que las personas consideradas adictas aparecen en una mayor proporción que las que no lo son.
 
-Finalmente, en la @fig-dispersion-edad-pantalla podemos observar que, en las edades más bajas, hay una mayor cantidad de personas consideradas adictas. Además, nuevamente se puede apreciar que mientras aumentan las horas diarias de uso de pantalla, también parece aumentar la posibilidad de que una persona sea considerada adicta hasta el valor de 8, ya que de 8 en adelante la persona ya se le considera como una persona 'adicta'
+Finalmente, en la @fig-dispersion-edad-pantalla la edad no separa a los grupos: la tasa de adicción está entre 70 % y 72 % en todos los tramos de edad (correlación de 0.00). Lo que sí separa a los grupos son las horas diarias de pantalla, como se vio arriba.
 
 \newpage
 
@@ -1000,14 +1023,15 @@ $$ {#eq-covarianza}
 
 # Conclusiones de P1
 
-Hemos encontrado 819 valores nulos correspondientes a una única columna: `nivel_adiccion`, por lo cual hemos optado excluir la columna `nivel_adiccion`, puesto que revelaba la misma información que la variable objetivo que es `etiqueta_de_adiccion`.
-La cantidad de personas que presentan la condición de “Adicto” de la variable `etiqueta_de_adiccion` es 5308 y la que presentan la condición de “No adicto” es 2192. El 70.77 % presenta adicción al smartphone y el 29.22% no presenta esta adicción: por lo tanto la clase objetivo no está balanceada y eso implica una mayor tendencia a la categoría “Adicto” lo cual en un futuro puede llevar a sesgos en el modelo de predicción.
+La columna `nivel_adiccion` tiene 819 registros con el valor `None`, que indica ausencia de adicción y no datos perdidos. Se excluye porque revela la misma información que la variable objetivo `etiqueta_de_adiccion`.
+La cantidad de personas que presentan la condición de “Adicto” de la variable `etiqueta_de_adiccion` es 5308 y la que presentan la condición de “No adicto” es 2192. El 70.77 % presenta adicción al smartphone y el 29.23 % no presenta esta adicción: por lo tanto la clase objetivo no está balanceada y eso implica una mayor tendencia a la categoría “Adicto” lo cual en un futuro puede llevar a sesgos en el modelo de predicción.
 Las variables más prometedoras que encontramos fueron: 
-`horas_diarias_pantalla`,`horas_redes_sociales` ratio `ratio_finde_diario` y `nivel_estres` reúnen información muy relacionada con `etiqueta_de_adiccion`.
-`horas_diarias_pantalla`: Las personas que usan más tiempo su celular son las que tienen la mayor cantidad de adictos.
-`horas_redes_sociales`: En los adictos, dedican la mayor cantidad de horas a las redes sociales.
-`ratio_finde_diario`: En las personas adictas el ratio de su uso del fin de semana con el uso diario normal se mantiene cerca a uno, dejando en claro que ven la misma cantidad de horas sin importar el día. En cambio en las no adictas encontramos que el ratio de su uso del fin de semana con su uso diario tiende siempre a más que uno, por lo cual se infiere que usan menos el celular en horarios de trabajo o estudio y lo usan más en su tiempo libre.
-Por último hemos encontrado que el factor más determinante en clasificar a una persona como Adicto o No adicto es la cantidad de horas que dedica al celular, específicamente a redes sociales, lo cual nos servirá a futuro para el entrenamiento del modelo de clasificación. Por otro lado, al ser un set de datos sintéticos no encontramos muchos patrones clásicos relacionados con estudios previos que asocian la adicción al smartphone con menor rendimiento académico, en parte por su efecto negativo sobre el sueño [@rathakrishnan2021smartphone]. 
+
+- `horas_diarias_pantalla` (r = 0.58): por encima de 8 horas diarias, el 100 % de los usuarios es adicto.
+- `horas_redes_sociales` (r = 0.41): por encima de 4 horas, el 100 % es adicto.
+- `ratio_finde_diario` (r = -0.36): es menor en los adictos (media 1.23 frente a 1.36), pero la diferencia de horas entre fin de semana y día es igual en ambos grupos, así que no indica autorregulación.
+- `nivel_estres`: no muestra relación; la tasa de adicción es de 70 % a 71 % en los tres niveles.
+El factor más asociado a la etiqueta es el tiempo diario de pantalla, seguido de las horas en redes sociales; esto servirá de punto de partida para el modelo de la P2. Además, el dataset parece sintético (distribuciones casi simétricas y sin atípicos), por lo que no reproduce los patrones clásicos de la literatura, como la asociación entre adicción al smartphone y menor rendimiento académico por efecto en el sueño [@rathakrishnan2021smartphone]. 
 
 # Limitaciones y consideraciones éticas
 
