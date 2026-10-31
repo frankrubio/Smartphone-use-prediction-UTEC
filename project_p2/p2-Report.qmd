@@ -1,5 +1,5 @@
 ---
-title: "P1 - Uso de Smartphones y Riesgo de Adiccion"
+title: "P2 - Uso de Smartphones y Riesgo de Adiccion"
 author:
   - familyname: "Rubio Peralta"
     othernames: "Hiter Frank"
@@ -20,12 +20,12 @@ author:
   - familyname: "Garcia"
     othernames: "Victor Andres Diaz"
     qualifications: "Alumno"
-    email: "victor.diaz@continental.edu.pe"
+    email: "victor.diaz@utec.edu.pe"
 department: "CIENCIA DE DATOS E \\newline INTELIGENCIA ARTIFICIAL"
 organization: "Introduccion a Ciencia de Datos e Inteligencia Artificial"
 phone: "+51 936 603 314"
 email: "pandascore@gmail.com"
-date: "16 de septiembre de 2026"
+date: "30 de octubre de 2026"
 lang: es
 number-sections: true
 toc: true
@@ -105,11 +105,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (classification_report, confusion_matrix,
-roc_auc_score,
-roc_curve,
-accuracy_score,
-f1_score)
+from sklearn.metrics import (classification_report, confusion_matrix,roc_auc_score,roc_curve,accuracy_score,f1_score)
 
 sns.set_theme(style="whitegrid")
 ```
@@ -272,34 +268,153 @@ tabla(df.head().T)
 ```
 <!-- TODO: comentar las decisiones tomadas y completar la tabla con el resto de variables (eliminación de variables irrelevantes). -->
 
+## Selección de features relevantes
 
+Tras el analisis exploratorio de los datos se definió que variables serían las protagonistas del modelo de predicción, pero se les presenta las metricas que fueron necesarias para está selección:
 
 ## Medición de la fuerza predictora
 
+Utilizamos la correlacion de punto biserial, que es un caso especial del coeficiente de correlacion de Pearson, está correlacion es perfecta para medir la fuerza predictora de una variable dado que nuestra variable objetivo es de tipo binaria (Si/No), algo que el coeficiente de correlacion de Pearson no entiende.
 <!-- TODO: explicar el método elegido (información mutua, correlación con la etiqueta, chi-cuadrado, etc.) y qué variables resultan más fuertes. -->
 
 ```{python}
 #| echo: true
-#| label: fuerza-predictora
-# TODO: calcular la fuerza predictora de cada variable respecto a addiction_label
+#| label: fuerza-predictora-var-num
+df_sin_y = df.drop("addiction_label", axis =1)
+resultados = []
+for columna in df_sin_y:
+    if pd.api.types.is_numeric_dtype(df[columna]):
+        coeficiente, p_valor = stats.pointbiserialr(df["addiction_label"], df[columna])
+        resultados.append({
+                'Variable': columna,
+                'Coeficiente Correlación': coeficiente,
+                'P-Valor': p_valor,
+                'Significativa (p < 0.05)': 'Sí' if p_valor < 0.05 else 'No'
+            })
+df_correlaciones = pd.DataFrame(resultados)
+df_correlaciones['Abs_Coeficiente'] = df_correlaciones['Coeficiente Correlación'].abs()
+df_correlaciones = df_correlaciones.sort_values(by='Abs_Coeficiente', ascending=False).drop(columns=['Abs_Coeficiente'])
+tabla(df_correlaciones, indice = False)
 ```
 
-<!-- TODO: figura/tabla con el ranking de variables y su interpretación. -->
+Como se puede observar en la tabla solo las primeras 5 variables son las que tienen una correlacion de punto biserial significante y por lo tanto una fuerza predictora en comparacion en las demás. Este es un gran indicador de qué debemos elegir.
+
+Dado que el calculo anterior solo aplica para variables numericas, ahora mediremos la fuerza predictora de las variables categoricas a traves de chi cuadrado.
+
+```{python}
+#| echo: true
+#| label: fuerza-predictora-var-cat
+
+resultados_2 = []
+for columna in df_sin_y:
+    if df[columna].dtype in ['object', 'category', 'bool'] or df[columna].nunique() < 10:
+        tabla_contingencia = pd.crosstab(df["addiction_label"], df[columna])
+        chi2, p_val, dof, esperados = stats.chi2_contingency(tabla_contingencia)
+        significativa = "Sí" if p_val < 0.05 else "No"
+        resultados_2.append({
+                'Variable': columna,
+                'Estadístico Chi2': round(chi2, 4),
+                'Valor P': round(p_val, 4),
+                'Grados de Libertad': dof,
+                'Significativa (95%)': significativa
+            })
+df_resultados = pd.DataFrame(resultados_2)
+df_resultados = df_resultados.sort_values(by='Valor P')
+tabla(df_resultados, indice = False)
+```
+
+Aqui se puede observar que ninguna variable categorica llega a tener un impacto para la predicción.
+
 ## Decisiones de selección de variables
 
 Tabla de decisiones.
 
 ```{python}
 #| label: tbl-decisiones
-#| tbl-cap: "Decisiones sobre cada variable".
+#| tbl-cap: Decisiones sobre cada variable.
+
 decisiones = pd.DataFrame(
     [
-        ["Aquí van las decisiones tomadas con la selección de variables"]
-        # TODO: completar con el resto de decisiones de la P1
+        [
+            "age",
+            "Descartar",
+            "No significativa, sin efecto",
+        ],
+        [
+            "sex",
+            "Descartar",
+            "No significativa",
+        ],
+        [
+            "daily_screen_hrs",
+            "Conservar",
+            "La más fuerte, efecto moderado-alto",
+        ],
+        [
+            "social_hrs",
+            "Conservar",
+            "Efecto moderado",
+        ],
+        [
+            "gaming_hrs",
+            "Descartar",
+            "No significante, sin efecto",
+        ],
+        [
+            "word_study_hrs",
+            "Descartar",
+            "No significante, sin efecto",
+        ],
+        [
+            "sleep_hrs",
+            "Descartar",
+            "Es significativa, pero irrelevante en la practica",
+        ],
+        [
+            "daily_notifs",
+            "Descartar",
+            "No significante, sin efecto",
+        ],
+        [
+            "daily_app_opens",
+            "Descartar",
+            "No significativa, sin efecto",
+        ],
+        [
+            "wknd_screen_hrs",
+            "Descartar",
+            "Genera redundancia con daily_screen_hrs",
+        ],
+        [
+            "stress_level",
+            "Descartar",
+            "No significativa, sin efecto",
+        ],
+        [
+            "acad_work_impact",
+            "Descartar",
+            "No significativa, sin efecto",
+        ],
+        [
+            "leisure_hrs",
+            "Descartar",
+            "Genera redundancia con social_hrs",
+        ],
+        [
+            "wknd_daily_ratio",
+            "Conservar",
+            "El signo negativo no importa, solo la magnitud. Es informativa: quien usa mucho el celular también entre semana (ratio bajo) tiende a ser adicto",
+        ],
+        [
+            "wknd_diff",
+            "Descartar",
+            "No significativa, sin efecto",
+        ]
     ],
-    columns=["Variable", "Decisión", "Por qué"]
+    columns=["Variable", "Decisión", "Por qué"],
 )
-tabla(decisiones, indice=False)
+
+tabla(decisiones, indice = False)
 ```
 
 ## Codificación de variables categóricas
