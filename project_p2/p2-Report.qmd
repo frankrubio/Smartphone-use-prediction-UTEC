@@ -167,6 +167,7 @@ Cargamos el dataset desde el directorio del proyecto.
 ```{python}
 #| echo: true
 #| label: carga-dataset
+
 df = pd.read_csv("datos/df_clean.csv")
 ```
 
@@ -419,32 +420,133 @@ tabla(decisiones, indice = False)
 
 ## Codificación de variables categóricas
 
-<!-- TODO: justificar la codificación elegida (ordinal, one-hot, etc.) para sex, stress_level y acad_work_impact. -->
+En la variable sex utilizamos la codificación One-Hot Encoding porque no existe en sí un orden entre las subcategorías, en la variable stress_level utilizamos la codificación Ordinal porque si existe un orden siendo bajo, medio y alto. Finalmente, la variable acad_work_impact, utilizamos la codificación binaria porque solo tiene 2 posibles valores.
 
 ```{python}
 #| echo: true
 #| label: preparacion-x-y
-# TODO: separar X e y y codificar las categóricas
+
+X = df[
+    [
+        "daily_screen_hrs",
+        "social_hrs",
+        "wknd_daily_ratio",
+        "sex",
+        "stress_level",
+        "acad_work_impact"
+    ]
+].copy()
+
+# Variable que queremos predecir
+y = df["addiction_label"].copy()
+
+# Codificación ordinal: Low < Medium < High
+X["stress_level"] = X["stress_level"].map({
+    "Low": 0,
+    "Medium": 1,
+    "High": 2
+})
+
+# Codificación binaria: No/Yes
+X["acad_work_impact"] = X["acad_work_impact"].map({
+    "No": 0,
+    "Yes": 1
+})
+
+# One-Hot Encoding para categorías que no tienen un orden
+X = pd.get_dummies(
+    X,
+    columns=["sex"],
+    dtype=int
+)
+
+display(X.head())
+
 ```
 
 ## Normalización o estandarización
 
-<!-- TODO: indicar si se necesita escalar (según los modelos elegidos) y con qué técnica. Ajustar el escalador solo con entrenamiento. -->
+¿A que modelos es recomendable aplicar una estandarización?
 
 ```{python}
-#| echo: true
-#| label: escalado
-# TODO: aplicar la normalización/estandarización si corresponde
+#| echo: False
+#| label: Escalado
+
+
+df_modelos = pd.DataFrame(
+    [
+        [
+            "Regresión logística",
+            "Es necesaria"
+        ],
+        [
+            "Random forest de clasificación",
+            "No es necesaria"
+
+        ],
+        [
+            "XGBoost con árboles, para clasificación",
+            "No es necesaria"
+
+        ],
+        [
+            "Árbol de decisión de clasificación",
+            "No es necesaria"
+
+        ]
+
+    ], columns=["Modelos","¿Es necesario estandizarlas?"]
+)
+
+tabla(df_modelos,indice=False)
+
 ```
+
 
 # División en entrenamiento y prueba
 
-<!-- TODO: justificar el porcentaje elegido (80/20, 70/30, etc.) y el uso de stratify por el desbalance de clases (70.8 % adictos). -->
+Se dicidió utilizar una división de 80% y 20%, un 80% dirigido hacia el entrenamiento y un 20% para las pruebas. Esta distribución permite que el modelo tenga la suficiente cantidad de registros para poder aprende y a su vez, manteniendo un conjunto de registros para las pruebas lo suficiemente amplio para pode
 
 ```{python}
 #| echo: true
 #| label: train-test
-# TODO: train_test_split
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.20,
+    random_state=42,
+    stratify=y
+)
+
+
+```
+
+Ahora recien podemos aplicar la estandarización porque definimos X_train y X_test
+
+```{python}
+#| echo: true
+#| label: estandarización
+
+#| echo: true
+#| label: estandarizacion-logistica
+
+escalador = StandardScaler()
+
+X_train_logistica = pd.DataFrame(
+    escalador.fit_transform(X_train),
+    columns=X_train.columns,
+    index=X_train.index
+)
+
+X_test_logistica = pd.DataFrame(
+    escalador.transform(X_test),
+    columns=X_test.columns,
+    index=X_test.index
+)
+
+display(X_train_logistica.head())
+
 ```
 
 # Modelos predictivos
