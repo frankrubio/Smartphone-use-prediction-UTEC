@@ -68,19 +68,6 @@ execute:
 
 \newpage
 
-# Resumen
-
-Continuando con el análisis exploratorio de la P1, en este informe entrenamos y evaluamos modelos predictivos para la etiqueta binaria de adicción (`addiction_label`) a partir del conjunto de datos de 7,500 usuarios.
-
-<!-- TODO: completar el resumen al final (modelos usados, métricas principales frente a la línea base de 70.8 %, hallazgos de la autopsia). -->
-
-# Planteamiento del problema
-
-En la P1 establecimos que la intensidad de uso es el determinante asociado a la etiqueta de adicción: más de 8 horas de pantalla diaria o más de 4 horas en redes sociales concentran el 100 % de los casos positivos. La pregunta que guía este informe es:
-
-> ¿Qué tan bien puede un modelo de aprendizaje automático predecir la etiqueta de adicción a partir de las variables de uso, descanso y contexto personal, y qué errores comete?
-
-La literatura reciente aplicada a este tipo de problemas usa exactamente enfoques de aprendizaje automático sobre features de uso comportamental @azeez2026ml, y las librerías empleadas son las estándar del ecosistema Python @Pedregosa2011.
 
 # Datos y preparación
 
@@ -102,10 +89,19 @@ from scipy import stats
 import math
 
 from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GridSearchCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier, plot_tree
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (classification_report, confusion_matrix,roc_auc_score,roc_curve,accuracy_score,f1_score)
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    roc_auc_score,
+    roc_curve,
+    accuracy_score,
+    f1_score,
+)
 
 sns.set_theme(style="whitegrid")
 ```
@@ -117,25 +113,35 @@ Funciones de presentación heredadas de la P1: la función `tabla()` reproduce e
 #| echo: false
 def _tex(texto):
     """Escapa los caracteres especiales de LaTeX dentro de un texto."""
-    especiales = {"\\": r"\textbackslash{}", "&": r"\&", "%": r"\%",
-                  "$": r"\$", "#": r"\#", "_": r"\_", "{": r"\{",
-                  "}": r"\}", "~": r"\textasciitilde{}",
-                  "^": r"\textasciicircum{}"}
+    especiales = {
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+    }
     return "".join(especiales.get(c, c) for c in str(texto))
 
-def tabla(datos, decimales=2, indice=True, alineacion=None,
-          tamanio="small", interlineado=1.15):
+
+def tabla(
+    datos, decimales=2, indice=True, alineacion=None, tamanio="small", interlineado=1.15
+):
     """Imprime un DataFrame como tabla LaTeX con el estilo de la plantilla:
     booktabs + filas alternadas, como kable() + kable_styling("striped").
     `decimales` puede ser un número o un diccionario {columna: decimales}."""
     d = datos.reset_index() if indice else datos.copy()
     if alineacion is None:  # texto a la izquierda, números centrados
-        alineacion = "".join("c" if pd.api.types.is_numeric_dtype(d[c])
-                             else "l" for c in d.columns)
+        alineacion = "".join(
+            "c" if pd.api.types.is_numeric_dtype(d[c]) else "l" for c in d.columns
+        )
 
     def celda(valor, columna):
-        dec = (decimales.get(columna, 2) if isinstance(decimales, dict)
-               else decimales)
+        dec = decimales.get(columna, 2) if isinstance(decimales, dict) else decimales
         if isinstance(valor, (bool, np.bool_)):
             return "Sí" if valor else "No"
         if isinstance(valor, (int, np.integer)):
@@ -143,21 +149,35 @@ def tabla(datos, decimales=2, indice=True, alineacion=None,
         if isinstance(valor, (float, np.floating)):
             if pd.isna(valor):
                 return "--"
-            valor = 0.0 if round(valor, dec) == 0 else valor   # sin "-0.00"
+            valor = 0.0 if round(valor, dec) == 0 else valor  # sin "-0.00"
             return f"{valor:,.{dec}f}"
         texto = _tex(valor)
         # "{}" evita que LaTeX lea "[...]" como argumento opcional de \\
         return "{}" + texto if texto.startswith("[") else texto
 
     cabecera = " & ".join(rf"\textbf{{{_tex(c)}}}" for c in d.columns)
-    filas = [" & ".join(celda(v, c) for v, c in zip(fila, d.columns))
-             + r" \\" for i, fila in enumerate(d.itertuples(index=False))]
+    filas = [
+        " & ".join(celda(v, c) for v, c in zip(fila, d.columns)) + r" \\"
+        for i, fila in enumerate(d.itertuples(index=False))
+    ]
     # display() muestra la tabla aunque tabla() no sea la última línea
-    display(Latex("\n".join([
-        rf"\begingroup\{tamanio}\setstretch{{{interlineado}}}",
-        rf"\begin{{tabular}}{{{alineacion}}}", r"\toprule",
-        cabecera + r" \\", r"\midrule", *filas, r"\bottomrule",
-        r"\end{tabular}", r"\endgroup"])))
+    display(
+        Latex(
+            "\n".join(
+                [
+                    rf"\begingroup\{tamanio}\setstretch{{{interlineado}}}",
+                    rf"\begin{{tabular}}{{{alineacion}}}",
+                    r"\toprule",
+                    cabecera + r" \\",
+                    r"\midrule",
+                    *filas,
+                    r"\bottomrule",
+                    r"\end{tabular}",
+                    r"\endgroup",
+                ]
+            )
+        )
+    )
 ```
 
 ## Carga de datos
@@ -173,8 +193,6 @@ df = pd.read_csv("datos/df_clean.csv")
 
 El archivo entra completo: `{python} int(df.shape[0])` filas, `{python} int(df.shape[1])` columnas y 0 nulos.
 
-
-
 ## Renombrado y dataset limpio
 
 Renombramos las columnas a inglés justo después de cargar, evitando caracteres complicados (`/`, `ñ`) en los nombres que usará el modelo:
@@ -182,26 +200,27 @@ Renombramos las columnas a inglés justo después de cargar, evitando caracteres
 ```{python}
 #| echo: true
 #| label: renombrado
-df = df.rename(columns = {
-    'edad': 'age',
-    'genero': 'sex',
-    'horas_diarias_pantalla': 'daily_screen_hrs',
-    'horas_redes_sociales': 'social_hrs',
-    'horas_videojuegos': 'gaming_hrs',
-    'horas_trabajo/estudio': 'work_study_hrs',
-    'horas_sueño': 'sleep_hrs',
-    'notificaciones_por_dia': 'daily_notifs',
-    'aperturas_apps_por_dia': 'daily_app_opens',
-    'tiempo_pantalla_finde': 'wknd_screen_hrs',
-    'nivel_estres': 'stress_level',
-    'impacto_academico/laboral': 'acad_work_impact',
-    'etiqueta_de_adiccion': 'addiction_label',
-    'horas_ocio': 'leisure_hrs',
-    'ratio_finde_diario': 'wknd_daily_ratio',
-    'estado_adiccion': 'addiction_status',
-    'diferencia_finde': 'wknd_diff'
-})
-print(df.columns.tolist())
+df = df.rename(
+    columns={
+        "edad": "age",
+        "genero": "sex",
+        "horas_diarias_pantalla": "daily_screen_hrs",
+        "horas_redes_sociales": "social_hrs",
+        "horas_videojuegos": "gaming_hrs",
+        "horas_trabajo/estudio": "work_study_hrs",
+        "horas_sueño": "sleep_hrs",
+        "notificaciones_por_dia": "daily_notifs",
+        "aperturas_apps_por_dia": "daily_app_opens",
+        "tiempo_pantalla_finde": "wknd_screen_hrs",
+        "nivel_estres": "stress_level",
+        "impacto_academico/laboral": "acad_work_impact",
+        "etiqueta_de_adiccion": "addiction_label",
+        "horas_ocio": "leisure_hrs",
+        "ratio_finde_diario": "wknd_daily_ratio",
+        "estado_adiccion": "addiction_status",
+        "diferencia_finde": "wknd_diff",
+    }
+)
 ```
 
 Se excluye la variable que representa la variable objetivo en formato string:
@@ -222,11 +241,23 @@ Las variables creadas en la P1 y su origen:
 
 origenes = pd.DataFrame(
     [
-        ["leisure_hrs", "social_hrs + gaming_hrs", "Horas de ocio: suma de horas en redes sociales y videojuegos."],
-        ["wknd_daily_ratio", "wknd_screen_hrs / daily_screen_hrs", "Razón entre las horas de pantalla diarias y las del fin de semana."],
-        ["wknd_diff", "wknd_screen_hrs - daily_screen_hrs", "Diferencia de horas de pantalla entre el fin de semana y un día normal."]
+        [
+            "leisure_hrs",
+            "social_hrs + gaming_hrs",
+            "Horas de ocio: suma de horas en redes sociales y videojuegos.",
+        ],
+        [
+            "wknd_daily_ratio",
+            "wknd_screen_hrs / daily_screen_hrs",
+            "Razón entre las horas de pantalla del fin de semana y las diarias.",
+        ],
+        [
+            "wknd_diff",
+            "wknd_screen_hrs - daily_screen_hrs",
+            "Diferencia de horas de pantalla entre el fin de semana y un día normal.",
+        ],
     ],
-    columns=["Variable", "Origen", "Significado"]
+    columns=["Variable", "Origen", "Significado"],
 )
 tabla(origenes, indice=False)
 ```
@@ -253,10 +284,16 @@ significados = pd.DataFrame(
         ["acad_work_impact", "Impacto del uso en el rendimiento académico o laboral."],
         ["addiction_label", "Etiqueta binaria de adicción (variable objetivo)."],
         ["leisure_hrs", "Horas de ocio (social_hrs + gaming_hrs)."],
-        ["wknd_daily_ratio", "Razón entre horas de pantalla diarias y de fin de semana."],
-        ["wknd_diff", "Diferencia de horas de pantalla: fin de semana menos día normal."]
+        [
+            "wknd_daily_ratio",
+            "Razón entre horas de pantalla diarias y de fin de semana.",
+        ],
+        [
+            "wknd_diff",
+            "Diferencia de horas de pantalla: fin de semana menos día normal.",
+        ],
     ],
-    columns=["Variable", "Significado"]
+    columns=["Variable", "Significado"],
 )
 tabla(significados, indice=False)
 ```
@@ -267,7 +304,6 @@ tabla(significados, indice=False)
 
 tabla(df.head().T)
 ```
-<!-- TODO: comentar las decisiones tomadas y completar la tabla con el resto de variables (eliminación de variables irrelevantes). -->
 
 ## Selección de features relevantes
 
@@ -275,27 +311,30 @@ Tras el analisis exploratorio de los datos se definió que variables serían las
 
 ## Medición de la fuerza predictora
 
-Utilizamos la correlacion de punto biserial, que es un caso especial del coeficiente de correlacion de Pearson, está correlacion es perfecta para medir la fuerza predictora de una variable dado que nuestra variable objetivo es de tipo binaria (Si/No), algo que el coeficiente de correlacion de Pearson no entiende.
-<!-- TODO: explicar el método elegido (información mutua, correlación con la etiqueta, chi-cuadrado, etc.) y qué variables resultan más fuertes. -->
+Utilizamos la correlacion de punto biserial, que es un caso especial del coeficiente de correlacion de Pearson, está correlacion es perfecta para medir la fuerza predictora de una variable dado que nuestra variable objetivo es de tipo binaria (Si/No), algo que el coeficiente de correlacion de Pearson no entiende. <!-- TODO: explicar el método elegido (información mutua, correlación con la etiqueta, chi-cuadrado, etc.) y qué variables resultan más fuertes. -->
 
 ```{python}
 #| echo: true
 #| label: fuerza-predictora-var-num
-df_sin_y = df.drop("addiction_label", axis =1)
+df_sin_y = df.drop("addiction_label", axis=1)
 resultados = []
 for columna in df_sin_y:
     if pd.api.types.is_numeric_dtype(df[columna]):
         coeficiente, p_valor = stats.pointbiserialr(df["addiction_label"], df[columna])
-        resultados.append({
-                'Variable': columna,
-                'Coeficiente Correlación': coeficiente,
-                'P-Valor': p_valor,
-                'Significativa (p < 0.05)': 'Sí' if p_valor < 0.05 else 'No'
-            })
+        resultados.append(
+            {
+                "Variable": columna,
+                "Coeficiente Correlación": coeficiente,
+                "P-Valor": p_valor,
+                "Significativa (p < 0.05)": "Sí" if p_valor < 0.05 else "No",
+            }
+        )
 df_correlaciones = pd.DataFrame(resultados)
-df_correlaciones['Abs_Coeficiente'] = df_correlaciones['Coeficiente Correlación'].abs()
-df_correlaciones = df_correlaciones.sort_values(by='Abs_Coeficiente', ascending=False).drop(columns=['Abs_Coeficiente'])
-tabla(df_correlaciones, indice = False)
+df_correlaciones["Abs_Coeficiente"] = df_correlaciones["Coeficiente Correlación"].abs()
+df_correlaciones = df_correlaciones.sort_values(
+    by="Abs_Coeficiente", ascending=False
+).drop(columns=["Abs_Coeficiente"])
+tabla(df_correlaciones, indice=False)
 ```
 
 Como se puede observar en la tabla solo las primeras 5 variables son las que tienen una correlacion de punto biserial significante y por lo tanto una fuerza predictora en comparacion en las demás. Este es un gran indicador de qué debemos elegir.
@@ -308,20 +347,25 @@ Dado que el calculo anterior solo aplica para variables numericas, ahora medirem
 
 resultados_2 = []
 for columna in df_sin_y:
-    if df[columna].dtype in ['object', 'category', 'bool'] or df[columna].nunique() < 10:
+    if (
+        df[columna].dtype in ["object", "category", "bool"]
+        or df[columna].nunique() < 10
+    ):
         tabla_contingencia = pd.crosstab(df["addiction_label"], df[columna])
         chi2, p_val, dof, esperados = stats.chi2_contingency(tabla_contingencia)
         significativa = "Sí" if p_val < 0.05 else "No"
-        resultados_2.append({
-                'Variable': columna,
-                'Estadístico Chi2': round(chi2, 4),
-                'Valor P': round(p_val, 4),
-                'Grados de Libertad': dof,
-                'Significativa (95%)': significativa
-            })
+        resultados_2.append(
+            {
+                "Variable": columna,
+                "Estadístico Chi2": round(chi2, 4),
+                "Valor P": round(p_val, 4),
+                "Grados de Libertad": dof,
+                "Significativa (95%)": significativa,
+            }
+        )
 df_resultados = pd.DataFrame(resultados_2)
-df_resultados = df_resultados.sort_values(by='Valor P')
-tabla(df_resultados, indice = False)
+df_resultados = df_resultados.sort_values(by="Valor P")
+tabla(df_resultados, indice=False)
 ```
 
 Aqui se puede observar que ninguna variable categorica llega a tener un impacto para la predicción.
@@ -362,7 +406,7 @@ decisiones = pd.DataFrame(
             "No significante, sin efecto",
         ],
         [
-            "word_study_hrs",
+            "work_study_hrs",
             "Descartar",
             "No significante, sin efecto",
         ],
@@ -404,64 +448,32 @@ decisiones = pd.DataFrame(
         [
             "wknd_daily_ratio",
             "Conservar",
-            "El signo negativo no importa, solo la magnitud. Es informativa: quien usa mucho el celular también entre semana (ratio bajo) tiende a ser adicto",
+            "El signo negativo no importa, solo la magnitud.Es informativa: quien usa mucho el celular también entre semana (ratio bajo) tiende a ser adicto",
         ],
         [
             "wknd_diff",
             "Descartar",
             "No significativa, sin efecto",
-        ]
+        ],
     ],
     columns=["Variable", "Decisión", "Por qué"],
 )
 
-tabla(decisiones, indice = False)
+tabla(decisiones, indice=False)
 ```
 
 ## Codificación de variables categóricas
 
-En la variable sex utilizamos la codificación One-Hot Encoding porque no existe en sí un orden entre las subcategorías, en la variable stress_level utilizamos la codificación Ordinal porque si existe un orden siendo bajo, medio y alto. Finalmente, la variable acad_work_impact, utilizamos la codificación binaria porque solo tiene 2 posibles valores.
+Ya elegidas nuestras variables, vemos que son todas numéricas y es por ello que no necesitamos codificarlas.
 
 ```{python}
-#| echo: true
+#| echo: False
 #| label: preparacion-x-y
 
-X = df[
-    [
-        "daily_screen_hrs",
-        "social_hrs",
-        "wknd_daily_ratio",
-        "sex",
-        "stress_level",
-        "acad_work_impact"
-    ]
-].copy()
+X = df[["daily_screen_hrs", "social_hrs", "wknd_daily_ratio"]].copy()
 
 # Variable que queremos predecir
 y = df["addiction_label"].copy()
-
-# Codificación ordinal: Low < Medium < High
-X["stress_level"] = X["stress_level"].map({
-    "Low": 0,
-    "Medium": 1,
-    "High": 2
-})
-
-# Codificación binaria: No/Yes
-X["acad_work_impact"] = X["acad_work_impact"].map({
-    "No": 0,
-    "Yes": 1
-})
-
-# One-Hot Encoding para categorías que no tienen un orden
-X = pd.get_dummies(
-    X,
-    columns=["sex"],
-    dtype=int
-)
-
-display(X.head())
-
 ```
 
 ## Normalización o estandarización
@@ -475,136 +487,264 @@ display(X.head())
 
 df_modelos = pd.DataFrame(
     [
-        [
-            "Regresión logística",
-            "Es necesaria"
-        ],
-        [
-            "Random forest de clasificación",
-            "No es necesaria"
-
-        ],
-        [
-            "XGBoost con árboles, para clasificación",
-            "No es necesaria"
-
-        ],
-        [
-            "Árbol de decisión de clasificación",
-            "No es necesaria"
-
-        ]
-
-    ], columns=["Modelos","¿Es necesario estandizarlas?"]
+        ["Regresión logística", "Es necesaria"],
+        ["Random forest de clasificación", "No es necesaria"],
+        ["XGBoost con árboles, para clasificación", "No es necesaria"],
+        ["Árbol de decisión de clasificación", "No es necesaria"],
+    ],
+    columns=["Modelos", "¿Es necesario estandizarlas?"],
 )
 
-tabla(df_modelos,indice=False)
+tabla(df_modelos, indice=False)
 
 ```
 
+# División en entrenamiento, validación y prueba
 
-# División en entrenamiento y prueba
-
-Se dicidió utilizar una división de 80% y 20%, un 80% dirigido hacia el entrenamiento y un 20% para las pruebas. Esta distribución permite que el modelo tenga la suficiente cantidad de registros para poder aprende y a su vez, manteniendo un conjunto de registros para las pruebas lo suficiemente amplio para pode
+Se decidió utilizar una división de 70%, 15% y 15%; un 70% dirigido hacia el entrenamiento, un 15% para las validaciones y un 15% para el *testing*. Esta distribución permite que el modelo tenga la suficiente cantidad de registros para poder aprender y a su vez, manteniendo un conjunto de registros para las pruebas lo suficiemente amplio para poder evaluar el modelo.
 
 ```{python}
 #| echo: true
 #| label: train-test
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X,
-    y,
-    test_size=0.20,
-    random_state=42,
-    stratify=y
+# 1. separamos el 15% para test
+X_train_val, X_test, y_train_val, y_test = train_test_split(
+    X, y, test_size=0.15, random_state=42, stratify=y
 )
-
+# 2. separamos el 85% restante tomamos el +17.65% para validación (0.85 * 0.17647 = 0.15 del total)
+X_train, X_val, y_train, y_val = train_test_split(
+    X_train_val, y_train_val, test_size=0.17647, random_state=42, stratify=y_train_val
+)
 
 ```
 
-Ahora recien podemos aplicar la estandarización porque definimos X_train y X_test
+Ahora recién podemos aplicar la estandarización porque definimos X_train y X_test
 
 ```{python}
 #| echo: true
 #| label: estandarización
 
-#| echo: true
-#| label: estandarizacion-logistica
-
 escalador = StandardScaler()
 
-X_train_logistica = pd.DataFrame(
-    escalador.fit_transform(X_train),
-    columns=X_train.columns,
-    index=X_train.index
+X_train_l = pd.DataFrame(
+    escalador.fit_transform(X_train), columns=X_train.columns, index=X_train.index
+)
+X_val_l = pd.DataFrame(
+    escalador.transform(X_val), columns=X_val.columns, index=X_val.index
 )
 
-X_test_logistica = pd.DataFrame(
-    escalador.transform(X_test),
-    columns=X_test.columns,
-    index=X_test.index
+X_test_l = pd.DataFrame(
+    escalador.transform(X_test), columns=X_test.columns, index=X_test.index
 )
 
-display(X_train_logistica.head())
+display(X_train_l.head())
 
 ```
 
 # Modelos predictivos
 
+
 ## Selección de modelos
 
-<!-- TODO: elegir al menos dos modelos de clasificación (Regresión Logística, Árbol de Decisión con profundidad limitada, SVM, KNN, XGBoost). Si se escoge uno fuera de la lista, justificarlo. -->
+Se eligieron los modelos de *Logistic Regression* y *Decision Tree*, porque ambos son adecuados para clasificación binaria y permiten explicar su predicciones de manera accesible. El modelo *Logistic Regression* permite encontrar una relación aproximadamente lineal entre las variables y la probabilidad de adicción. El modelo *Decision Tree* permite observar reglas de desición mediante condiciones sobre las variables. Se eligieron estos modelos para comparar un método lineal con uno basado en reglas.
 
-<!-- TODO: justificación técnica y conceptual de cada modelo en función de los datos y del objetivo. -->
+### Modelo 1:
 
-### Modelo 1: <!-- TODO: nombre -->
+**Logistic Regression**, es un modelo lineal fácil de interpretar. Sin embargo no es el modelo más potente de todos, pero nos va ayudar a poder dar una mayor explicabilidad en nuestro modelado
 
-<!-- TODO: justificación del modelo 1. -->
+### Modelo 2:
 
-### Modelo 2: <!-- TODO: nombre -->
+**Decision Tree**, es un modelo versátil, ya que puede hacer tareas de regresión o clasificación. Este modelo presenta la propiedad de ser fácil de comprender y generalmente tener un buen desempeño en el modelado.
 
-<!-- TODO: justificación del modelo 2. -->
-
-<!-- TODO (opcional): modelos adicionales. -->
 
 ## Entrenamiento y ajuste de hiperparámetros
 
-<!-- TODO: explicar la técnica de ajuste (grid search o random search), la grilla/espacio de búsqueda, la métrica de validación cruzada y el número de folds. -->
+se usará grid search para ajustar los hiperparámetros, ya que el datset trabajado es pequeño y contamos ocn suficiente potencia computacional.
 
 ### Modelo 1
 
+
 ```{python}
-#| echo: true
-#| label: entrenamiento-modelo-1
-# TODO: entrenar y ajustar hiperparámetros del modelo 1
+#| echo: True
+#| label: union-X_train-X_val
+
+# Estandarizamos entrenamiento + validación (mismo orden que y_train_val)
+X_train_val_l = pd.DataFrame(
+    escalador.transform(X_train_val), columns=X_train_val.columns, index=X_train_val.index
+)
 ```
+
+
+```{python}
+#| echo: True
+#| label: ajuste-hiperparametros-logisticregression
+#| output: False
+
+#1. Creamos una instancia del modelo base (Logistic Regression)
+
+base_logi = LogisticRegression(max_iter = 1000, random_state = 42)
+
+#2. Creamos la malla de hiperparámetros (con los parámetros más comúnes, pero en distintas perspectivas)
+
+param_grid_logi ={
+"C": [0.01, 0.1, 1.0, 10.0, 100.0],
+ "solver" : ["liblinear"] #se eligió este, porque soporta "l1" y"l2
+ }
+
+#3. Configuramos grid Search (Para ello creo una instancia de GridSearch)
+
+grid_logi = GridSearchCV(
+    estimator = base_logi, 
+    param_grid = param_grid_logi, 
+    cv = 5,
+    scoring = "f1_macro", 
+    n_jobs = -1,
+)
+
+#4. Entrenamos el Grid Search (contiene nuestro modelo) con los datos de entrenamiento y validación, ya que internamente GridSearch lo reparte
+grid_logi.fit(X_train_val_l, y_train_val)
+```
+
+```{python}
+#| echo: True
+#| label: extraccion-modelo-logisticregression
+print("Mejores Hiperparámetros:", grid_logi.best_params_)
+print("Mejor F1-Score en CV:", round(grid_logi.best_score_, 4))
+logi_reg_best = grid_logi.best_estimator_
+```
+
+Finalmente con Grid Search, obtuvimos los mejores hiperparámetros para el modelo.
 
 ### Modelo 2
 
+
 ```{python}
-#| echo: true
-#| label: entrenamiento-modelo-2
-# TODO: entrenar y ajustar hiperparámetros del modelo 2
+#| echo: True
+#| label: ajuste-hiperparametros-decisiontree
+#| output: False
+#1. Creamos la instancia con el modelo Decision Tree
+base_tree = DecisionTreeClassifier(random_state=42)
+
+#2. Creamos la malla de hiperparámetros
+param_grid_tree = {
+    'max_depth': [None,2, 3, 5, 10, 15],
+    'min_samples_split': [2,3,4, 5, 10],
+    'criterion': ['gini', 'entropy']
+}
+
+# 3. configuramos GridSearch
+grid_tree = GridSearchCV(estimator=base_tree, param_grid=param_grid_tree, cv=5, scoring='f1_macro', n_jobs=-1)
+
+#4 Entrenamos el GridSearch (contiene nuestro modelo), con los datos sin estandarización.
+grid_tree.fit(X_train_val, y_train_val)
 ```
 
-<!-- TODO: tabla con los mejores hiperparámetros de cada modelo. -->
+
+```{python}
+#| echo: True
+#| label: extraccion-modelo-decisiontree
+#| output: False
+print("Mejores Hiperparámetros:", grid_tree.best_params_)
+print("Mejor F1-Score en CV:", round(grid_tree.best_score_, 4))
+tree_best = grid_tree.best_estimator_
+```
+
 
 ## Evaluación de modelos
 
-<!-- TODO: calcular accuracy, F1-score (precision y recall) y matriz de confusión de cada modelo en el conjunto de prueba. Mantener la línea base (siempre "Adicto" = 70.8 %). -->
+Luego del entrenamiento nos hemos quedado con los siguientes dos modelos: `logi_reg_best`: *Logistic Regression* y `tree_best`: *Decision Tree*. Guardamos las predicciones en las variables: `y_pred_logi` y `y_pred_tree`.
+
+```{python}
+y_pred_logi = logi_reg_best.predict(X_test_l)
+y_pred_tree = tree_best.predict(X_test)
+
+```
+
+### Accuracy
+
+```{python}
+baseline = np.ones_like(y_test)  # línea base: siempre "Adicto" (1)
+
+accuracy = pd.DataFrame({
+    "Modelo": ['Regresión Logística', 'Árbol de Decisión', 'Línea base'],
+    "Accuracy": [
+        accuracy_score(y_test, y_pred_logi),
+        accuracy_score(y_test, y_pred_tree),
+        accuracy_score(y_test, baseline),
+    ]
+})
+
+tabla(accuracy, decimales=4, indice=False)
+
+
+```
+
+### F1-Score
 
 ```{python}
 #| echo: true
 #| label: tbl-comparacion-modelos
 #| tbl-cap: "Métricas de cada modelo en el conjunto de prueba, junto con la línea base (predecir siempre 'Adicto')."
-# TODO: tabla de métricas (Accuracy, Precision, Recall, F1)
+
+from sklearn.metrics import precision_score, recall_score
+
+predicciones = {
+    "Regresión Logística": y_pred_logi,
+    "Árbol de Decisión": y_pred_tree,
+    "Línea base": baseline,
+}
+resumen_prueba = pd.DataFrame([
+    {
+        "Modelo": nombre,
+        "Accuracy": accuracy_score(y_test, pred),
+        "Precision": precision_score(y_test, pred),
+        "Recall": recall_score(y_test, pred),
+        "F1-Score": f1_score(y_test, pred),
+    }
+    for nombre, pred in predicciones.items()
+])
+
+tabla(resumen_prueba, decimales=4, indice=False)
 ```
 
+Comparación directa de F1-Score durante la validación cruzada (solo referencia, no es la métrica de prueba):
+
+```{python}
+#| echo: true
+
+resumen_cv = pd.DataFrame({
+    'Modelo': ['Regresión Logística', 'Árbol de Decisión'],
+    'Mejor F1-Score (CV)': [grid_logi.best_score_, grid_tree.best_score_]
+})
+
+tabla(resumen_cv)
+```
+
+### Matriz de confusión
 ```{python}
 #| echo: true
 #| label: fig-matrices-confusion
 #| fig-cap: "Matrices de confusión de cada modelo en el conjunto de prueba."
-# TODO: matrices de confusión
+
+labels = ["No adicto", "Adicto"]
+models = [("Regresión Logística", y_pred_logi), ("Árbol de Decisión", y_pred_tree)]
+row_no_addict = np.array([[True, True], [False, False]])  # fila 0 = No adicto
+
+fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+for ax, (name, pred) in zip(axes, models):
+    cm = confusion_matrix(y_test, pred)
+    # Verde para no adictos, rojo para adictos: más casos = color más intenso
+    sns.heatmap(cm, mask=~row_no_addict, cmap="Greens", vmin=0, vmax=cm.max(),
+                annot=True, fmt="d", cbar=False, ax=ax)
+    sns.heatmap(cm, mask=row_no_addict, cmap="Reds", vmin=0, vmax=cm.max(),
+                annot=True, fmt="d", cbar=False, ax=ax)
+    ax.set_xticklabels(labels)
+    ax.set_yticklabels(labels)
+    ax.set_title(name)
+    ax.set_xlabel("Predicción")
+    ax.set_ylabel("Real")
+plt.tight_layout()
+plt.show()
 ```
 
 <!-- TODO: comentar los resultados (¿superan los modelos la línea base?, FP vs FN con los números de las matrices). -->
@@ -635,11 +775,13 @@ Toda esta sección se hace sobre el **mejor modelo** según la evaluación anter
 
 ## Justificación algorítmica paso a paso
 
+```{=html}
 <!-- TODO: explicar exactamente cómo llegó el modelo a la conclusión de cada caso, según el algoritmo elegido:
 - Árbol de Decisión: adjuntar el gráfico del árbol y describir el camino (condición por condición) hasta la hoja final.
 - Regresión Logística / SVM: mencionar los coeficientes de las variables más fuertes que empujaron el dato hacia esa clase.
 - KNN: justificar con las características de los K vecinos más cercanos.
 - XGBoost: justificar la elección de hiperparámetros (learning_rate, num_trees, etc.). -->
+```
 
 ```{python}
 #| echo: true
@@ -651,7 +793,7 @@ Toda esta sección se hace sobre el **mejor modelo** según la evaluación anter
 
 ## DataFrame de errores
 
-<!-- TODO: explicar cómo se construye el DataFrame con las filas donde y_pred != y_test. -->
+
 
 ```{python}
 #| echo: true
