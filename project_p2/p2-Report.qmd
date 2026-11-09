@@ -184,6 +184,7 @@ def tabla(
 
 Cargamos el dataset desde el directorio del proyecto.
 
+
 ```{python}
 #| echo: true
 #| label: carga-dataset
@@ -192,6 +193,8 @@ df = pd.read_csv("datos/df_clean.csv")
 ```
 
 El archivo entra completo: `{python} int(df.shape[0])` filas, `{python} int(df.shape[1])` columnas y 0 nulos.
+
+Los datos provienen del repositorio de Kaggle citado en la P1 [@KaggleDataset].
 
 ## Renombrado y dataset limpio
 
@@ -311,7 +314,16 @@ Tras el analisis exploratorio de los datos se definió que variables serían las
 
 ## Medición de la fuerza predictora
 
-Utilizamos la correlacion de punto biserial, que es un caso especial del coeficiente de correlacion de Pearson, está correlacion es perfecta para medir la fuerza predictora de una variable dado que nuestra variable objetivo es de tipo binaria (Si/No), algo que el coeficiente de correlacion de Pearson no entiende. <!-- TODO: explicar el método elegido (información mutua, correlación con la etiqueta, chi-cuadrado, etc.) y qué variables resultan más fuertes. -->
+ <!-- TODO: explicar el método elegido (información mutua, correlación con la etiqueta, chi-cuadrado, etc.) y qué variables resultan más fuertes. -->
+ La correlación punto-biserial mide la relación entre una variable binaria (`addiction_label`) y una numérica [@Tate1954]. Equivale al coeficiente de correlación de Pearson [@walpole2012probabilidad] calculado con la binaria codificada como 0/1, y su prueba de significancia equivale a comparar las medias de ambos grupos con una prueba t (@eq-puntobiserial).
+
+$$
+r_{pb} = \frac{\bar{X}_1 - \bar{X}_0}{s_X}\sqrt{p\,q}
+\qquad
+t = \frac{r_{pb}\sqrt{n-2}}{\sqrt{1-r_{pb}^2}}
+$$ {#eq-puntobiserial}
+
+donde $\bar{X}_1$ y $\bar{X}_0$ son las medias de la variable numérica en adictos y no adictos, $s_X$ es su desviación estándar sobre todos los registros, $p$ es la proporción de adictos y $q = 1-p$. El estadístico $t$ tiene $n-2$ grados de libertad.
 
 ```{python}
 #| echo: true
@@ -339,7 +351,11 @@ tabla(df_correlaciones, indice=False)
 
 Como se puede observar en la tabla solo las primeras 5 variables son las que tienen una correlacion de punto biserial significante y por lo tanto una fuerza predictora en comparacion en las demás. Este es un gran indicador de qué debemos elegir.
 
-Dado que el calculo anterior solo aplica para variables numericas, ahora mediremos la fuerza predictora de las variables categoricas a traves de chi cuadrado.
+Para las categóricas se usó la prueba chi-cuadrado de independencia [@walpole2012probabilidad]:
+
+$$
+\chi^2 = \sum_{i,j} \frac{(O_{ij}-E_{ij})^2}{E_{ij}}, \qquad E_{ij} = \frac{(\text{total fila}_i)(\text{total columna}_j)}{n}
+$$ {#eq-chi2}
 
 ```{python}
 #| echo: true
@@ -520,6 +536,8 @@ X_train, X_val, y_train, y_val = train_test_split(
 
 Ahora recién podemos aplicar la estandarización porque definimos X_train y X_test
 
+$$ z = \frac{x - \mu}{\sigma} $$ {#eq-zscore}
+
 ```{python}
 #| echo: true
 #| label: estandarización
@@ -543,6 +561,7 @@ display(X_train_l.head())
 
 # Modelos predictivos
 
+La división de datos, el escalado, los modelos, el ajuste de hiperparámetros y las métricas se implementaron con scikit-learn [@Pedregosa2011].
 
 ## Selección de modelos
 
@@ -552,9 +571,21 @@ Se eligieron los modelos de *Logistic Regression* y *Decision Tree*, porque ambo
 
 **Logistic Regression**, es un modelo lineal fácil de interpretar. Sin embargo no es el modelo más potente de todos, pero nos va ayudar a poder dar una mayor explicabilidad en nuestro modelado
 
+La regresión logística modela la probabilidad de la clase "Adicto" [@hosmer2013logistic]:
+
+$$
+P(y=1 \mid \mathbf{x}) = \frac{1}{1 + e^{-(\beta_0 + \boldsymbol{\beta}^\top \mathbf{x})}}
+$$ {#eq-logistica}
+
+Cada coeficiente se interpreta con el odds ratio $\text{OR}_j = e^{\beta_j}$: el cambio multiplicativo en las probabilidades relativas de ser adicto por cada desviación estándar adicional de la variable (@eq-logistica).
+
 ### Modelo 2:
 
 **Decision Tree**, es un modelo versátil, ya que puede hacer tareas de regresión o clasificación. Este modelo presenta la propiedad de ser fácil de comprender y generalmente tener un buen desempeño en el modelado.
+
+El árbol divide los datos buscando reducir la impureza de Gini [@breiman1984cart]:
+
+$$ G = 1 - \sum_{k} p_k^2 $$ {#eq-gini}
 
 
 ## Entrenamiento y ajuste de hiperparámetros
@@ -598,7 +629,7 @@ grid_logi = GridSearchCV(
     param_grid = param_grid_logi, 
     cv = 5,
     scoring = "f1_macro", 
-    n_jobs = -1,
+    n_jobs = 1,
 )
 
 #4. Entrenamos el Grid Search (contiene nuestro modelo) con los datos de entrenamiento y validación, ya que internamente GridSearch lo reparte
@@ -633,7 +664,7 @@ param_grid_tree = {
 }
 
 # 3. configuramos GridSearch
-grid_tree = GridSearchCV(estimator=base_tree, param_grid=param_grid_tree, cv=5, scoring='f1_macro', n_jobs=-1)
+grid_tree = GridSearchCV(estimator=base_tree, param_grid=param_grid_tree, cv=5, scoring='f1_macro', n_jobs=1)
 
 #4 Entrenamos el GridSearch (contiene nuestro modelo), con los datos sin estandarización.
 grid_tree.fit(X_train_val, y_train_val)
@@ -662,6 +693,14 @@ y_pred_tree = tree_best.predict(X_test)
 
 ### Accuracy
 
+El accuracy es la proporción de registros clasificados correctamente. Se toma "Adicto" como la clase positiva:
+
+$$
+\text{Accuracy}=\frac{TP+TN}{TP+TN+FP+FN}
+$$ {#eq-accuracy}
+
+donde $TP$ son los adictos detectados, $TN$ los no adictos detectados, $FP$ los no adictos clasificados como adictos y $FN$ los adictos clasificados como no adictos.
+
 ```{python}
 baseline = np.ones_like(y_test)  # línea base: siempre "Adicto" (1)
 
@@ -680,6 +719,16 @@ tabla(accuracy, decimales=4, indice=False)
 ```
 
 ### F1-Score
+
+La precisión indica qué proporción de los clasificados como "Adicto" lo son realmente; el recall, qué proporción de los adictos reales fue detectada. El F1-Score es su media armónica:
+
+$$
+\text{Precisión}=\frac{TP}{TP+FP},\quad
+\text{Recall}=\frac{TP}{TP+FN},\quad
+F_1=\frac{2\cdot\text{Precisión}\cdot\text{Recall}}{\text{Precisión}+\text{Recall}}
+$$ {#eq-metricas}
+
+La tabla siguiente reporta el $F_1$ de la clase "Adicto" en el conjunto de prueba. Durante la validación cruzada se optimizó `f1_macro`, que promedia el $F_1$ de ambas clases.
 
 ```{python}
 #| echo: true
@@ -859,6 +908,8 @@ Toda esta sección se hace sobre el **mejor modelo** según la evaluación anter
 
 ## Ventajas, limitaciones y comportamiento de cada modelo
 
+Un árbol individual puede ser inestable ante cambios pequeños en los datos; los ensambles como random forest suelen mitigarlo [@breiman2001randomforests], y podrían explorarse en trabajos futuros.
+
 <!-- TODO: discutir ventajas, limitaciones y comportamiento de cada modelo. -->
 
 ## Conclusiones generales
@@ -879,6 +930,6 @@ Toda esta sección se hace sobre el **mejor modelo** según la evaluación anter
 
 <!-- TODO: redactar limitaciones (dataset sintético, etiqueta derivada de una regla, sesgo). -->
 
-Referencias a usar: @Kwon2013; @Csibi2018.
+La adicción al celular suele medirse con escalas validadas como la SAS [@kwon2013sas] o la SABAS [@Csibi2018]. Nuestra variable objetivo no proviene de un instrumento de este tipo, por lo que los resultados no deben interpretarse como un diagnóstico.
 
 # Referencias
