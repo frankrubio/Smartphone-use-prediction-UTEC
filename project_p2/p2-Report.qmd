@@ -805,11 +805,29 @@ Toda esta sección se hace sobre el **mejor modelo** según la evaluación anter
 ## Extracción de casos
 
 <!-- TODO: aislar de X_test tres (3) registros reales clasificados correctamente por el mejor modelo e imprimir los valores exactos de sus variables. -->
+Para explicar cómo decide el modelo, se aíslan del conjunto de prueba tres registros reales que el árbol de decisión clasificó correctamente: dos adictos y un no adicto, para cubrir ambas clases. Se eligen al azar entre los aciertos, con semilla fija (`random_state=42`) para que el informe muestre siempre los mismos casos.
 
 ```{python}
 #| echo: true
 #| label: casos-correctos
-# TODO: seleccionar 3 registros de X_test bien clasificados e imprimir sus variables
+# Predicciones del mejor modelo, con el mismo índice que X_test
+y_pred_mejor = pd.Series(y_pred_tree, index=X_test.index)
+
+# Clase real de los registros bien clasificados
+correctos = y_test[y_pred_mejor == y_test]
+
+# Dos adictos (1) y un no adicto (0) elegidos al azar entre los aciertos
+idx_casos = (
+    correctos[correctos == 1].sample(2, random_state=42).index.tolist()
+    + correctos[correctos == 0].sample(1, random_state=42).index.tolist()
+)
+
+# Valores exactos de sus variables, con la clase real y la predicha
+casos = X_test.loc[idx_casos].copy()
+casos["clase_real"] = y_test.loc[idx_casos].map({0: "No adicto", 1: "Adicto"})
+casos["prediccion"] = y_pred_mejor.loc[idx_casos].map({0: "No adicto", 1: "Adicto"})
+
+print(casos.to_string())
 ```
 
 ## Análisis de probabilidades
@@ -819,7 +837,15 @@ Toda esta sección se hace sobre el **mejor modelo** según la evaluación anter
 ```{python}
 #| echo: true
 #| label: proba-casos
-# TODO: predict_proba de los 3 registros
+# Probabilidad de cada clase para los 3 casos (el árbol usa datos sin escalar)
+proba = tree_best.predict_proba(X_test.loc[idx_casos])
+
+probabilidades = pd.DataFrame(
+    proba, columns=["P(No adicto)", "P(Adicto)"], index=idx_casos
+)
+probabilidades["clase_real"] = casos["clase_real"]
+
+print(probabilidades.to_string())
 ```
 
 ## Justificación algorítmica paso a paso
@@ -830,12 +856,40 @@ Toda esta sección se hace sobre el **mejor modelo** según la evaluación anter
 - Regresión Logística / SVM: mencionar los coeficientes de las variables más fuertes que empujaron el dato hacia esa clase.
 - KNN: justificar con las características de los K vecinos más cercanos.
 - XGBoost: justificar la elección de hiperparámetros (learning_rate, num_trees, etc.). -->
+El árbol clasifica cada registro aplicando condiciones sucesivas sobre las variables, desde la raíz hasta una hoja. Los umbrales están en las unidades originales (horas y razón), porque el árbol no usa datos estandarizados.
+
+**Caso [id]:** [real]. El registro tiene `daily_screen_hrs` = [__], `social_hrs` = [__] y `wknd_daily_ratio` = [__]. En la raíz, [variable] = [valor] es [menor o igual / mayor] que [umbral], por lo que pasa a la rama [izquierda / derecha]. Luego [segunda condición]. Llega a una hoja de la clase [__], que es la clase real, con una probabilidad de [__] (ver 4.2).
 ```
 
 ```{python}
 #| echo: true
 #| label: explicacion-algoritmica
-# TODO: gráfico del árbol / coeficientes / vecinos más cercanos, según el modelo
+# 1. Gráfico del árbol (se muestran como máximo 3 niveles para que sea legible)
+plt.figure(figsize=(14, 7))
+plot_tree(
+    tree_best,
+    feature_names=X.columns,
+    class_names=["No adicto", "Adicto"],
+    filled=True,
+    max_depth=3,
+    fontsize=9,
+)
+plt.show()
+
+# 2. Camino que sigue cada caso desde la raíz hasta la hoja
+arbol = tree_best.tree_
+
+for i in idx_casos:
+    fila = X_test.loc[[i]]
+    nodos = tree_best.decision_path(fila).indices  # nodos recorridos, de raíz a hoja
+    print(f"Registro {i} (clase real: {casos.loc[i, 'clase_real']})")
+    for nodo in nodos[:-1]:  # todos menos la hoja final
+        variable = X.columns[arbol.feature[nodo]]
+        umbral = arbol.threshold[nodo]
+        valor = fila[variable].iloc[0]
+        signo = "<=" if valor <= umbral else ">"
+        print(f"  {variable} = {valor:.2f} {signo} {umbral:.2f}")
+    print(f"  -> Hoja: {tree_best.predict(fila)[0]} (1 = Adicto)\n")
 ```
 
 # Autopsia del modelo
