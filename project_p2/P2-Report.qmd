@@ -777,15 +777,15 @@ tabla(resumen_cv)
 
 labels = ["No adicto", "Adicto"]
 models = [("Regresión Logística", y_pred_logi), ("Árbol de Decisión", y_pred_tree)]
-row_no_addict = np.array([[True, True], [False, False]])  # fila 0 = No adicto
+aciertos = np.array([[True, False], [False, True]])  # Diagonal principal = Aciertos
 
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 for ax, (name, pred) in zip(axes, models):
     cm = confusion_matrix(y_test, pred)
-    # Verde para no adictos, rojo para adictos: más casos = color más intenso
-    sns.heatmap(cm, mask=~row_no_addict, cmap="Greens", vmin=0, vmax=cm.max(),
+    # Verde para aciertos (TN, TP), rojo para errores (FP, FN)
+    sns.heatmap(cm, mask=~aciertos, cmap="Greens", vmin=0, vmax=cm.max(),
                 annot=True, fmt="d", cbar=False, ax=ax)
-    sns.heatmap(cm, mask=row_no_addict, cmap="Reds", vmin=0, vmax=cm.max(),
+    sns.heatmap(cm, mask=aciertos, cmap="Reds", vmin=0, vmax=cm.max(),
                 annot=True, fmt="d", cbar=False, ax=ax)
     ax.set_xticklabels(labels)
     ax.set_yticklabels(labels)
@@ -796,7 +796,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-<!-- TODO: comentar los resultados (¿superan los modelos la línea base?, FP vs FN con los números de las matrices). -->
+Ambos modelos superan con claridad la línea base. El árbol de decisión presenta un mejor desempeño general: comete solo 1 falso positivo y 67 falsos negativos. En cambio, la regresión logística tiene un recall ligeramente mayor pero a costa de 257 falsos positivos frente a 72 falsos negativos.
 
 # Explicabilidad del modelo
 
@@ -804,7 +804,6 @@ Toda esta sección se hace sobre el **mejor modelo** según la evaluación anter
 
 ## Extracción de casos
 
-<!-- TODO: aislar de X_test tres (3) registros reales clasificados correctamente por el mejor modelo e imprimir los valores exactos de sus variables. -->
 Para explicar cómo decide el modelo, se aíslan del conjunto de prueba tres registros reales que el árbol de decisión clasificó correctamente: dos adictos y un no adicto, para cubrir ambas clases. Se eligen al azar entre los aciertos, con semilla fija (`random_state=42`) para que el informe muestre siempre los mismos casos.
 
 ```{python}
@@ -831,8 +830,6 @@ print(casos.to_string())
 ```
 
 ## Análisis de probabilidades
-
-<!-- TODO: usar predict_proba() para mostrar la confianza con la que el modelo clasificó cada uno de los 3 registros. -->
 
 ```{python}
 #| echo: true
@@ -1018,45 +1015,86 @@ Registro 960, FN: 6.36 h de pantalla, 1.31 h de redes y razón 1.46; es adicto. 
 
 **Soluciones propuestas.**
 
-- **Recolectar franjas horarias de uso** (por ejemplo, uso nocturno o en horas de sueño y de estudio). Podría separar a usuarios con las mismas horas totales de pantalla, que es justo lo que hoy no se distingue en la banda.
 - **Ponderar por costos.** Penalizar más los FN con `class_weight` en el árbol o con un umbral menor sobre `predict_proba`. Tiene un precio: en el conjunto de prueba, reclasificar toda la banda cambiaría `{python} n_fn` FN por `{python} n_tn_banda` FP, así que solo conviene si un FN cuesta más de aproximadamente `{python} round(n_tn_banda / n_fn, 1)` veces un FP.
 
 # Comparación de modelos y conclusiones
 
 ## Comparación del rendimiento
 
-<!-- TODO: comparar los modelos según las métricas aplicadas (tabla resumen y, opcionalmente, curvas ROC). -->
+Ambos modelos superan con claridad la línea base en todas las métricas (@tbl-comparacion-modelos). La línea base, que predice a todos los usuarios como adictos, obtiene una exactitud de 0.7076 y un F1-Score de 0.8287, pero no resulta útil porque no identifica a ningún usuario libre de adicción.
+
+El árbol de decisión es el modelo con mejor rendimiento global. Logra una exactitud de 0.9396, una precisión de 0.9986 y un F1-Score de 0.9554. Su punto más fuerte es que casi no comete falsos positivos (solo 1 en el conjunto de prueba), lo que asegura que casi cualquier persona catalogada como adicta realmente lo es.
+
+La regresión logística obtiene una exactitud de 0.8951 y un F1-Score de 0.9271. Logra detectar una fracción ligeramente mayor de adictos reales (recall de 0.9422 frente a 0.9158 del árbol), pero a costa de acumular 257 falsos positivos, clasificando de manera equivocada a muchos usuarios no adictos.
+
+La @fig-curva-roc compara la capacidad de discriminación de ambos modelos. El árbol de decisión obtiene un área bajo la curva superior, confirmando su mayor eficacia para separar ambas clases.
 
 ```{python}
 #| echo: true
-#| label: comparacion-final
-# TODO: tabla/figura comparativa final
+#| label: fig-curva-roc
+#| fig-cap: "Curvas ROC y área bajo la curva (AUC) para ambos modelos en el conjunto de prueba."
+
+p_test_logi = logi_reg_best.predict_proba(X_test_l)[:, 1]
+p_test_tree = tree_best.predict_proba(X_test)[:, 1]
+
+fpr_logi, tpr_logi, _ = roc_curve(y_test, p_test_logi)
+auc_logi = roc_auc_score(y_test, p_test_logi)
+
+fpr_tree, tpr_tree, _ = roc_curve(y_test, p_test_tree)
+auc_tree = roc_auc_score(y_test, p_test_tree)
+
+plt.figure(figsize=(7, 4.2))
+plt.plot(fpr_tree, tpr_tree, label=f"Árbol de Decisión (AUC = {auc_tree:.4f})", color="#2ca02c", lw=2)
+plt.plot(fpr_logi, tpr_logi, label=f"Regresión Logística (AUC = {auc_logi:.4f})", color="#1f77b4", lw=2)
+plt.plot([0, 1], [0, 1], color="gray", linestyle="--", label="Línea base (AUC = 0.5000)")
+plt.xlabel("Tasa de falsos positivos")
+plt.ylabel("Tasa de verdaderos positivos")
+plt.title("Comparación de Curvas ROC")
+plt.legend(loc="lower right")
+plt.tight_layout()
+plt.show()
 ```
 
 ## Ventajas, limitaciones y comportamiento de cada modelo
 
-Un árbol individual puede ser inestable ante cambios pequeños en los datos; los ensambles como random forest suelen mitigarlo [@breiman2001randomforests], y podrían explorarse en trabajos futuros.
+### Regresión Logística
 
-<!-- TODO: discutir ventajas, limitaciones y comportamiento de cada modelo. -->
+- **Ventajas:** Es un modelo rápido de entrenar y fácil de interpretar. Permite observar directamente cómo influye cada variable en la probabilidad del resultado. Además, detectó una proporción ligeramente mayor de adictos reales.
+- **Limitaciones:** Asume una relación lineal simple entre las variables y la probabilidad, por lo que no puede capturar combinaciones complejas. Esto ocasionó 257 falsos positivos, reduciendo su precisión global frente al árbol.
+- **Comportamiento:** Tiende a predecir adicción ante cualquier incremento considerable en las horas diarias de pantalla, incluso cuando el uso de redes sociales es reducido.
+
+### Árbol de Decisión
+
+- **Ventajas:** Toma decisiones mediante reglas de corte directas e intuitivas sobre las horas de uso. Alcanzó el mejor F1-Score (0.9554) y una precisión de 0.9986, con solo un falso positivo en la prueba.
+- **Limitaciones:** Los umbrales de decisión son rígidos. Variaciones de pocos minutos cerca del corte pueden alterar el resultado. Además, un árbol individual puede ser inestable ante cambios pequeños en los datos; los ensambles como random forest suelen mitigarlo [@breiman2001randomforests], y podrían explorarse en trabajos futuros.
+- **Comportamiento:** Clasifica con certeza los casos de uso muy alto o muy bajo. No obstante, en valores intermedios (la banda de sombra) agrupa a adictos y no adictos bajo una misma probabilidad y predice por mayoría que no son adictos.
 
 ## Conclusiones generales
 
 ### Impacto de los datos en el rendimiento
 
-<!-- TODO: balanceo de clases, calidad de los datos, outliers. -->
+El dataset presenta un desbalance de clases donde cerca del 71% de los registros corresponden a adictos. Esto explica por qué una predicción fija como la línea base alcanza una exactitud de 70.8% sin aportar valor práctico. A pesar de ello, ambos modelos lograron aprender patrones genuinos y superar ampliamente ese piso.
+
+La calidad general de los datos favoreció el aprendizaje: no había valores vacíos y las distribuciones de horas fueron consistentes. Asimismo, los valores atípicos no afectaron negativamente al árbol, ya que las particiones por umbral aíslan los valores extremos sin alterar el resto de las divisiones.
 
 ### Mejoras de datos evidenciadas en la autopsia
 
-<!-- TODO: nuevas variables necesarias, transformaciones, ingeniería de features. -->
+La autopsia demostró que prácticamente todos los errores del árbol (67 de 68) se concentran en una zona intermedia: entre 6 y 8 horas diarias de pantalla y menos de 4 horas de redes sociales. En esa franja, adictos y no adictos presentan promedios casi iguales en las variables utilizadas, por lo que el modelo carece de información para diferenciarlos.
+
+Para resolver esta limitación, se requiere registrar hábitos y horarios específicos de uso, tales como el uso nocturno, las interrupciones del sueño. Conocer el momento y el tipo de actividad brindaría la información necesaria para separar a ambos grupos en esa zona ambigua.
 
 ### Consideraciones éticas y de impacto real
 
-<!-- TODO: qué implicaría implementar la solución actual (dataset sintético, etiqueta derivada de una regla, sesgo, costo de FN vs FP). -->
+En una aplicación real, los errores no tienen el mismo costo. Un falso negativo (no detectar a un adicto) deja sin apoyo a una persona en riesgo, mientras que un falso positivo solo implica una revisión preventiva innecesaria. Por tanto, el falso negativo es el error más perjudicial.
+
+Por otra parte, la etiqueta de adicción proviene de reglas fijas sobre datos sintéticos y no de evaluaciones clínicas reales. Implementar este modelo en una institución educativa o empresa implicaría el riesgo de etiquetar indebidamente a personas que requieren un uso intensivo del celular por motivos laborales o académicos. Por ello, el modelo debe considerarse solo como una guía preventiva inicial, sujeta a evaluación profesional y nunca como una decisión automática o sancionatoria.
 
 # Limitaciones
 
-<!-- TODO: redactar limitaciones (dataset sintético, etiqueta derivada de una regla, sesgo). -->
+El análisis presenta las siguientes limitaciones principales:
 
-La adicción al celular suele medirse con escalas validadas como la SAS [@kwon2013sas] o la SABAS [@Csibi2018]. Nuestra variable objetivo no proviene de un instrumento de este tipo, por lo que los resultados no deben interpretarse como un diagnóstico.
+- **Datos sintéticos:** El conjunto de datos es sintético y no proviene de mediciones directas en una población real, por lo que los patrones pueden no reflejar la complejidad del comportamiento cotidiano.
+- **Definición de la etiqueta:** La adicción al celular suele medirse con escalas validadas como la SAS [@kwon2013sas] o la SABAS [@Csibi2018]. Nuestra variable objetivo no proviene de un instrumento de este tipo, sino de una regla matemática prefijada, por lo que los resultados no deben interpretarse como un diagnóstico.
+- **Falta de contexto de uso:** No se cuenta con datos sobre el propósito del uso (académico, laboral o recreativo), lo que genera un sesgo al clasificar como problemático el tiempo de pantalla sin considerar su función.
 
 # Referencias
