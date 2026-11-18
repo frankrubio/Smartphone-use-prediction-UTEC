@@ -52,6 +52,7 @@ header-includes:
   - \AtBeginEnvironment{Shaded}{\setstretch{1.1}}
   - \fvset{breaklines=true}
   - \usepackage{csquotes}
+  - \usepackage{tabulary}
 format:
   report-pdf:
     keep-tex: false
@@ -129,16 +130,26 @@ def _tex(texto):
 
 
 def tabla(
-    datos, decimales=2, indice=True, alineacion=None, tamanio="small", interlineado=1.15
+    datos, decimales=2, indice=True, alineacion=None, tamanio="small", interlineado=1.15, anchos=None
 ):
     """Imprime un DataFrame como tabla LaTeX con el estilo de la plantilla:
     booktabs + filas alternadas, como kable() + kable_styling("striped").
     `decimales` puede ser un número o un diccionario {columna: decimales}."""
     d = datos.reset_index() if indice else datos.copy()
-    if alineacion is None:  # texto a la izquierda, números centrados
-        alineacion = "".join(
-            "c" if pd.api.types.is_numeric_dtype(d[c]) else "l" for c in d.columns
-        )
+    if alineacion is None:
+    # Texto a la izquierda, números centrados
+        alineacion = [
+            "c" if pd.api.types.is_numeric_dtype(d[c]) else "l"
+            for c in d.columns
+        ]
+
+        # Aplicar anchos personalizados
+        if anchos:
+            for columna, ancho in anchos.items():
+                posicion = d.columns.get_loc(columna)
+                alineacion[posicion] = f"p{{{ancho}cm}}" if isinstance(ancho, (int, float)) else f"p{{{ancho}}}"
+
+        alineacion = "".join(alineacion)
 
     def celda(valor, columna):
         dec = decimales.get(columna, 2) if isinstance(decimales, dict) else decimales
@@ -247,7 +258,7 @@ origenes = pd.DataFrame(
         [
             "leisure_hrs",
             "social_hrs + gaming_hrs",
-            "Horas de ocio: suma de horas en redes sociales y videojuegos.",
+            "Horas de ocio: suma de horas en redes\nsociales y videojuegos.",
         ],
         [
             "wknd_daily_ratio",
@@ -262,7 +273,7 @@ origenes = pd.DataFrame(
     ],
     columns=["Variable", "Origen", "Significado"],
 )
-tabla(origenes, indice=False)
+tabla(origenes, indice=False, anchos={"Significado": 6})
 ```
 
 Significado de cada variable del dataset:
@@ -328,6 +339,7 @@ donde $\bar{X}_1$ y $\bar{X}_0$ son las medias de la variable numérica en adict
 ```{python}
 #| echo: true
 #| label: fuerza-predictora-var-num
+#| tbl-cap: Evaluación de fuerza predictora de variables numéricas
 df_sin_y = df.drop("addiction_label", axis=1)
 resultados = []
 for columna in df_sin_y:
@@ -360,6 +372,7 @@ $$ {#eq-chi2}
 ```{python}
 #| echo: true
 #| label: fuerza-predictora-var-cat
+#| tbl-cap: Evaluación de fuerza predictora de variables categóricas
 
 resultados_2 = []
 for columna in df_sin_y:
@@ -384,7 +397,7 @@ df_resultados = df_resultados.sort_values(by="Valor P")
 tabla(df_resultados, indice=False)
 ```
 
-Aqui se puede observar que ninguna variable categorica llega a tener un impacto para la predicción.
+Aquí se puede observar que ninguna variable categórica llega a tener un impacto para la predicción.
 
 ## Decisiones de selección de variables
 
@@ -464,7 +477,7 @@ decisiones = pd.DataFrame(
         [
             "wknd_daily_ratio",
             "Conservar",
-            "El signo negativo no importa, solo la magnitud.Es informativa: quien usa mucho el celular también entre semana (ratio bajo) tiende a ser adicto",
+            "Es informativa: quien usa mucho el celular también entre semana tiende a ser adicto",
         ],
         [
             "wknd_diff",
@@ -475,15 +488,15 @@ decisiones = pd.DataFrame(
     columns=["Variable", "Decisión", "Por qué"],
 )
 
-tabla(decisiones, indice=False)
+tabla(decisiones, indice=False, anchos={"Por qué": 7.5})
 ```
 
 ## Codificación de variables categóricas
 
-Ya elegidas nuestras variables, vemos que son todas numéricas y es por ello que no necesitamos codificarlas.
+Ya elegidas nuestras variables, vemos que son todas numéricas y por ello no necesitamos codificarlas.
 
 ```{python}
-#| echo: False
+#| echo: false
 #| label: preparacion-x-y
 
 X = df[["daily_screen_hrs", "social_hrs", "wknd_daily_ratio"]].copy()
@@ -494,13 +507,12 @@ y = df["addiction_label"].copy()
 
 ## Normalización o estandarización
 
-¿A que modelos es recomendable aplicar una estandarización?
+¿A qué modelos es recomendable aplicar una estandarización?
 
 ```{python}
-#| echo: False
+#| echo: false
 #| label: Escalado
-
-
+#| tbl-cap: Categorización de modelos de Machine Learning según estandarización
 df_modelos = pd.DataFrame(
     [
         ["Regresión logística", "Es necesaria"],
@@ -541,6 +553,7 @@ $$ z = \frac{x - \mu}{\sigma} $$ {#eq-zscore}
 ```{python}
 #| echo: true
 #| label: estandarización
+#| tbl-cap: Cálculo de estandarización
 
 escalador = StandardScaler()
 
@@ -596,7 +609,7 @@ se usará grid search para ajustar los hiperparámetros, ya que el datset trabaj
 
 
 ```{python}
-#| echo: True
+#| echo: true
 #| label: union-X_train-X_val
 
 # Estandarizamos entrenamiento + validación (mismo orden que y_train_val)
@@ -607,7 +620,7 @@ X_train_val_l = pd.DataFrame(
 
 
 ```{python}
-#| echo: True
+#| echo: true
 #| label: ajuste-hiperparametros-logisticregression
 #| output: False
 
@@ -637,7 +650,7 @@ grid_logi.fit(X_train_val_l, y_train_val)
 ```
 
 ```{python}
-#| echo: True
+#| echo: true
 #| label: extraccion-modelo-logisticregression
 print("Mejores Hiperparámetros:", grid_logi.best_params_)
 print("Mejor F1-Score en CV:", round(grid_logi.best_score_, 4))
@@ -650,7 +663,7 @@ Finalmente con Grid Search, obtuvimos los mejores hiperparámetros para el model
 
 
 ```{python}
-#| echo: True
+#| echo: true
 #| label: ajuste-hiperparametros-decisiontree
 #| output: False
 #1. Creamos la instancia con el modelo Decision Tree
@@ -672,7 +685,7 @@ grid_tree.fit(X_train_val, y_train_val)
 
 
 ```{python}
-#| echo: True
+#| echo: true
 #| label: extraccion-modelo-decisiontree
 #| output: False
 print("Mejores Hiperparámetros:", grid_tree.best_params_)
@@ -686,6 +699,7 @@ tree_best = grid_tree.best_estimator_
 Luego del entrenamiento nos hemos quedado con los siguientes dos modelos: `logi_reg_best`: *Logistic Regression* y `tree_best`: *Decision Tree*. Guardamos las predicciones en las variables: `y_pred_logi` y `y_pred_tree`.
 
 ```{python}
+#| label: Guardado-variables
 y_pred_logi = logi_reg_best.predict(X_test_l)
 y_pred_tree = tree_best.predict(X_test)
 
@@ -702,6 +716,9 @@ $$ {#eq-accuracy}
 donde $TP$ son los adictos detectados, $TN$ los no adictos detectados, $FP$ los no adictos clasificados como adictos y $FN$ los adictos clasificados como no adictos.
 
 ```{python}
+#| echo: true
+#| label: Accuracy
+#| tbl-cap: Cálculo del accuracy
 baseline = np.ones_like(y_test)  # línea base: siempre "Adicto" (1)
 
 accuracy = pd.DataFrame({
@@ -760,13 +777,15 @@ Comparación directa de F1-Score durante la validación cruzada (solo referencia
 
 ```{python}
 #| echo: true
+#| label: f1-score
+#| tbl-cap: Comparación de F1-Score
 
 resumen_cv = pd.DataFrame({
     'Modelo': ['Regresión Logística', 'Árbol de Decisión'],
     'Mejor F1-Score (CV)': [grid_logi.best_score_, grid_tree.best_score_]
 })
 
-tabla(resumen_cv)
+tabla(resumen_cv, indice=False)
 ```
 
 ### Matriz de confusión
@@ -808,7 +827,8 @@ Para explicar cómo decide el modelo, se aíslan del conjunto de prueba tres reg
 
 ```{python}
 #| echo: true
-#| label: casos-correctos
+#| label: tbl-casos-correctos
+#| tbl-cap: Prueba de casos
 # Predicciones del mejor modelo, con el mismo índice que X_test
 y_pred_mejor = pd.Series(y_pred_tree, index=X_test.index)
 
@@ -826,14 +846,15 @@ casos = X_test.loc[idx_casos].copy()
 casos["clase_real"] = y_test.loc[idx_casos].map({0: "No adicto", 1: "Adicto"})
 casos["prediccion"] = y_pred_mejor.loc[idx_casos].map({0: "No adicto", 1: "Adicto"})
 
-print(casos.to_string())
+tabla(casos, indice=False)
 ```
 
 ## Análisis de probabilidades
 
 ```{python}
 #| echo: true
-#| label: proba-casos
+#| label: tbl-proba-casos
+#| tbl-cap: Probabilidad de casos
 # Probabilidad de cada clase para los 3 casos (el árbol usa datos sin escalar)
 proba = tree_best.predict_proba(X_test.loc[idx_casos])
 
@@ -842,7 +863,7 @@ probabilidades = pd.DataFrame(
 )
 probabilidades["clase_real"] = casos["clase_real"]
 
-print(probabilidades.to_string())
+tabla(probabilidades, indice=False)
 ```
 
 ## Justificación algorítmica paso a paso
@@ -860,7 +881,8 @@ El árbol clasifica cada registro aplicando condiciones sucesivas sobre las vari
 
 ```{python}
 #| echo: true
-#| label: explicacion-algoritmica
+#| label: tbl-explicacion-algoritmica
+#| tbl-cap: Explicacion algoritmica
 # 1. Gráfico del árbol (se muestran como máximo 3 niveles para que sea legible)
 plt.figure(figsize=(14, 7))
 plot_tree(
@@ -875,18 +897,25 @@ plt.show()
 
 # 2. Camino que sigue cada caso desde la raíz hasta la hoja
 arbol = tree_best.tree_
+filas = []
 
 for i in idx_casos:
     fila = X_test.loc[[i]]
-    nodos = tree_best.decision_path(fila).indices  # nodos recorridos, de raíz a hoja
-    print(f"Registro {i} (clase real: {casos.loc[i, 'clase_real']})")
-    for nodo in nodos[:-1]:  # todos menos la hoja final
+    nodos = tree_best.decision_path(fila).indices  # nodos de raíz a hoja
+    for paso, nodo in enumerate(nodos[:-1], start=1):  # sin la hoja final
         variable = X.columns[arbol.feature[nodo]]
         umbral = arbol.threshold[nodo]
         valor = fila[variable].iloc[0]
-        signo = "<=" if valor <= umbral else ">"
-        print(f"  {variable} = {valor:.2f} {signo} {umbral:.2f}")
-    print(f"  -> Hoja: {tree_best.predict(fila)[0]} (1 = Adicto)\n")
+        filas.append({
+            "Registro": str(i),
+            "Paso": paso,
+            "Variable": variable,
+            "Valor": valor,
+            "Condición": "menor o igual que" if valor <= umbral else "mayor que",
+            "Umbral": umbral,
+        })
+tabla_fila = pd.DataFrame(filas)
+tabla(tabla_fila, indice=False)
 ```
 
 \newpage
@@ -985,7 +1014,6 @@ casos_err = (
 )
 casos_err["id"] = casos_err["id"].astype(str)
 casos_err["y_real"] = casos_err["y_real"].map({0: "No adicto", 1: "Adicto"})
-casos_err.insert(0, "caso", range(1, len(casos_err) + 1))
 tabla(casos_err, decimales={"p_adicto": 4}, indice=False, tamanio="footnotesize")
 ```
 
